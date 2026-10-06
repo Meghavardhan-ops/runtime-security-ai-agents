@@ -80,7 +80,7 @@ AgentShield/
 Run from the AgentShield project root in Windows PowerShell:
 
 ```powershell
-Set-Location C:\Users\megha\Documents\Codex\AgentShield
+Set-Location C:\Users\Download\AgentShield
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
