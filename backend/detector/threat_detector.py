@@ -1,24 +1,39 @@
-"""Safe interface placeholder for the future threat detector."""
+"""Compatibility interface used by the existing SecurityService."""
 
-from typing import Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
-from backend.gateway.input_gateway import SecurityInput
+from backend.detector.detector import Detector, DetectionResult
+
+if TYPE_CHECKING:
+    from backend.gateway.input_gateway import SecurityInput
 
 
 class ThreatAssessment(BaseModel):
-    """Explicitly unassessed result until detector implementation exists."""
+    """Legacy wrapper retaining the service contract and exposing detection."""
 
     status: Literal["not_implemented"] = "not_implemented"
     threat: Literal["not_assessed"] = "not_assessed"
     indicators: list[str] = Field(default_factory=list)
+    detection_result: DetectionResult
 
 
 class ThreatDetector:
-    """Expose the future detector contract without inspecting input content."""
+    """Analyze normalized input while preserving the established method shape."""
+
+    def __init__(self, detector: Detector | None = None) -> None:
+        self.detector = detector or Detector()
 
     def analyze(self, security_input: SecurityInput) -> ThreatAssessment:
-        """Return an unassessed result; this stub performs no detection."""
-        del security_input
-        return ThreatAssessment()
+        """Detect threats in the supplied content without touching its source."""
+        result = self.detector.detect(
+            security_input.content,
+            source_type=security_input.source_type,
+        )
+        return ThreatAssessment(
+            indicators=result.indicators,
+            detection_result=result,
+        )

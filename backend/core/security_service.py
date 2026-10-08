@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from backend.detector.models import DetectionResult
 from backend.detector.threat_detector import ThreatDetector
 from backend.gateway.input_gateway import InputGateway, SecurityInput, SecurityInputRequest
 from backend.gateway.tool_gateway import ToolGateway
@@ -15,7 +16,7 @@ from backend.policy.risk_engine import RiskEngine
 
 
 class SecurityAnalysis(BaseModel):
-    """Truthful placeholder analysis response until detection is implemented."""
+    """Risk-engine placeholder response with the detector's separate result."""
 
     input_id: UUID
     analysis_status: Literal["not_implemented"] = "not_implemented"
@@ -24,7 +25,10 @@ class SecurityAnalysis(BaseModel):
     threat: Literal["not_assessed"] = "not_assessed"
     action: Literal["REVIEW"] = "REVIEW"
     indicators: list[str] = Field(default_factory=list)
-    reason: str = "Threat detection and risk scoring are not implemented."
+    reason: str = (
+        "Risk scoring is not implemented; see detection_result for detector output."
+    )
+    detection_result: DetectionResult
 
 
 class SecurityService:
@@ -59,6 +63,7 @@ class SecurityService:
             severity=risk_assessment.severity,
             threat=threat_assessment.threat,
             indicators=threat_assessment.indicators,
+            detection_result=threat_assessment.detection_result,
         )
         self.audit_logger.record(
             "analyze", response.action, None, request_id=normalized_input.id
