@@ -36,6 +36,7 @@ class RecordingInputGateway(InputGateway):
 
 class RecordingThreatDetector(ThreatDetector):
     def __init__(self, events: list[str]) -> None:
+        super().__init__()
         self.events = events
         self.inputs: list[SecurityInput] = []
         self.assessments: list[ThreatAssessment] = []
@@ -122,8 +123,12 @@ def test_analyze_runs_supported_pipeline_and_preserves_unassessed_state() -> Non
     assert normalized.trusted is False
     assert normalized.content == request.content
     assert threat_detector.inputs == [normalized]
-    assert threat_detector.assessments == [ThreatAssessment()]
-    assert risk_engine.assessments == threat_detector.assessments
+    assessment = threat_detector.assessments[0]
+    assert assessment.threat == "not_assessed"
+    assert assessment.detection_result is not None
+    assert assessment.detection_result.category == "benign"
+    assert assessment.detection_result.recommended_action == "ALLOW"
+    assert risk_engine.assessments == [assessment]
     assert response.input_id == normalized.id
     assert response.analysis_status == "not_implemented"
     assert response.threat == "not_assessed"
