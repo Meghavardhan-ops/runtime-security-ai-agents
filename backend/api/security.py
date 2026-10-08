@@ -63,7 +63,7 @@ class SecurityStatus(BaseModel):
 
     security_router: str = "active"
     input_gateway: str = "active"
-    threat_detector: str = "not_implemented"
+    threat_detector: str = "active"
     risk_engine: str = "not_implemented"
     policy_engine: str = "not_implemented"
     data_classifier: str = "not_implemented"

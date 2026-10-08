@@ -36,7 +36,7 @@ def test_security_status_is_truthful() -> None:
     assert response.json() == {
         "security_router": "active",
         "input_gateway": "active",
-        "threat_detector": "not_implemented",
+        "threat_detector": "active",
         "risk_engine": "not_implemented",
         "policy_engine": "not_implemented",
         "data_classifier": "not_implemented",

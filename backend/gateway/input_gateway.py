@@ -14,7 +14,9 @@ from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-SourceType = Literal["file", "email", "web", "api", "database", "text"]
+SourceType = Literal[
+    "file", "email", "web", "api", "database", "text", "user_input"
+]
 
 
 class SecurityInputRequest(BaseModel):

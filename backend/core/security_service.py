@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from backend.detector.models import DetectionResult
 from backend.detector.threat_detector import ThreatDetector
 from backend.gateway.input_gateway import InputGateway, SecurityInput, SecurityInputRequest
 from backend.gateway.tool_gateway import ToolGateway
@@ -16,7 +17,11 @@ from backend.policy.risk_engine import RiskEngine
 
 
 class SecurityAnalysis(BaseModel):
-    """Analysis response that supports both unknown and scored risk states."""
+    """Risk analysis response including detector and risk-engine results.
+
+    The optional detection result preserves direct construction of this legacy
+    response model; SecurityService.analyze always returns a populated result.
+    """
 
     input_id: UUID
     analysis_status: Literal["not_implemented"] = "not_implemented"
@@ -26,7 +31,7 @@ class SecurityAnalysis(BaseModel):
     action: Literal["ALLOW", "REVIEW", "BLOCK"] = "REVIEW"
     indicators: list[str] = Field(default_factory=list)
     reason: str = "Threat detection is not implemented; risk remains unassessed."
-
+    detection_result: DetectionResult | None = None
 
 class SecurityService:
     """Coordinate security component stubs without executing requested actions."""
@@ -64,6 +69,7 @@ class SecurityService:
             threat=threat_assessment.threat,
             indicators=threat_assessment.indicators,
             reason=" ".join(risk_assessment.reasons),
+            detection_result=threat_assessment.detection_result,
         )
         self.audit_logger.record(
             "analyze", response.action, None, request_id=normalized_input.id
