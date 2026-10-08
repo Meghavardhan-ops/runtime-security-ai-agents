@@ -10,6 +10,7 @@ from backend.gateway.input_gateway import InputGateway, SecurityInput, SecurityI
 from backend.gateway.tool_gateway import ToolGateway
 from backend.monitor.audit_logger import AuditLogger
 from backend.policy.data_classifier import DataClassifier
+from backend.policy.dlp import DLPEngine, DLPResult
 from backend.policy.policy_engine import PolicyEngine, SecurityDecision
 from backend.policy.risk_engine import RiskEngine
 
@@ -39,11 +40,13 @@ class SecurityService:
         policy_engine: PolicyEngine | None = None,
         tool_gateway: ToolGateway | None = None,
         audit_logger: AuditLogger | None = None,
+        dlp_engine: DLPEngine | None = None,
     ) -> None:
         self.input_gateway = input_gateway or InputGateway()
         self.threat_detector = threat_detector or ThreatDetector()
         self.risk_engine = risk_engine or RiskEngine()
         self.data_classifier = data_classifier or DataClassifier()
+        self.dlp_engine = dlp_engine or DLPEngine()
         self.policy_engine = policy_engine or PolicyEngine()
         self.tool_gateway = tool_gateway or ToolGateway(self.policy_engine)
         self.audit_logger = audit_logger or AuditLogger()
@@ -76,11 +79,73 @@ class SecurityService:
         return decision
 
     def check_data(self, data_type: str, destination: str) -> SecurityDecision:
-        """Check caller-supplied data labels without moving or classifying data."""
-        classification = self.data_classifier.classify(data_type, destination)
+        """Check caller-supplied labels; they are not verified by the DLP scanner."""
+        normalized_type = data_type.strip().casefold()
+        normalized_destination = destination.strip().casefold()
+        if normalized_destination == "external" and normalized_type != "confidential":
+            # The labels-only API has no content to scan, so it cannot establish
+            # that an externally-bound payload is safe to release.
+            classification = self.data_classifier.classify("unknown", destination)
+        else:
+            classification = self.data_classifier.classify(data_type, destination)
         decision = self.policy_engine.check_data(classification)
         self.audit_logger.record("check_data", decision.action, decision.allowed)
         return decision
+
+    def check_data_with_content(
+        self, data_type: str, destination: str, content: object
+    ) -> tuple[DLPResult, SecurityDecision]:
+        """Scan content, raise its policy label when needed, then consult policy.
+
+        Caller labels remain separate from DLP results. Sensitive findings raise
+        public/internal labels to confidential; unscannable content and external
+        content without a finding are sent to policy as unknown and fail closed.
+        """
+        try:
+            dlp_result = self.dlp_engine.scan(content)
+        except Exception:
+            dlp_result = DLPResult(
+                data_type="unknown",
+                classification="unknown",
+                indicators=(),
+                contains_sensitive_data=None,
+                severity="UNKNOWN",
+                scan_status="invalid_input",
+            )
+
+        effective_data_type = self._data_type_after_scan(
+            data_type, destination, dlp_result
+        )
+        classification = self.data_classifier.classify(
+            effective_data_type, destination
+        )
+        decision = self.policy_engine.check_data(classification)
+        self.audit_logger.record("check_data", decision.action, decision.allowed)
+        return dlp_result, decision
+
+    @staticmethod
+    def _data_type_after_scan(
+        data_type: str, destination: str, result: DLPResult
+    ) -> str:
+        if result.scan_status != "scanned":
+            return "unknown"
+
+        normalized = data_type.strip().casefold()
+        normalized_destination = destination.strip().casefold()
+        if normalized_destination == "external":
+            if result.contains_sensitive_data is not True:
+                # Pattern matching cannot certify that external content is public.
+                return "unknown"
+            if normalized in {"public", "internal", "confidential"}:
+                return "confidential"
+            return data_type
+
+        if result.contains_sensitive_data is True and normalized in {
+            "public",
+            "internal",
+        }:
+            return "confidential"
+        return data_type
 
     def check_action(self, action: str, target: str) -> SecurityDecision:
         """Check an action request without contacting or modifying its target."""
