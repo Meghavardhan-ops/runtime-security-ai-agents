@@ -1,12 +1,16 @@
 """Tests for the check-only Security API and its unimplemented boundaries."""
 
 import logging
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.api.security import router
+from backend.core.security_service import SecurityAnalysis
+from backend.detector.threat_detector import ThreatAssessment
 from backend.main import app
+from backend.policy.risk_engine import RiskEngine
 
 client = TestClient(app)
 SECURITY_URL = "/api/v1/security"
@@ -48,11 +52,41 @@ def test_analyze_normalizes_untrusted_input_and_is_explicitly_unimplemented() ->
     result = response.json()
     assert result["input_id"]
     assert result["analysis_status"] == "not_implemented"
-    assert result["risk_score"] is None
-    assert result["severity"] == "UNKNOWN"
+    assert result["risk_score"] == 100
+    assert result["severity"] == "CRITICAL"
     assert result["threat"] == "not_assessed"
-    assert result["action"] == "REVIEW"
+    assert result["action"] == "BLOCK"
     assert result["indicators"] == []
+    assert result["reason"] == (
+        "Threat assessment is unavailable; fail-closed security decision."
+    )
+
+
+def test_security_analysis_preserves_critical_risk_assessment() -> None:
+    threat_assessment = ThreatAssessment()
+    risk_assessment = RiskEngine().assess(threat_assessment)
+
+    response = SecurityAnalysis(
+        input_id=uuid4(),
+        risk_score=risk_assessment.risk_score,
+        severity=risk_assessment.severity,
+        action=risk_assessment.recommended_action,
+        threat=threat_assessment.threat,
+        indicators=threat_assessment.indicators,
+        reason=" ".join(risk_assessment.reasons),
+    )
+
+    assert response.risk_score == 100
+    assert response.severity == "CRITICAL"
+    assert response.action == "BLOCK"
+
+
+def test_security_analysis_retains_null_score_for_unassessed_state() -> None:
+    response = SecurityAnalysis(input_id=uuid4())
+
+    assert response.risk_score is None
+    assert response.severity == "UNKNOWN"
+    assert response.action == "REVIEW"
 
 
 def test_analyze_revalidates_a_security_input_response() -> None:

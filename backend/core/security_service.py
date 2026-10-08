@@ -15,16 +15,16 @@ from backend.policy.risk_engine import RiskEngine
 
 
 class SecurityAnalysis(BaseModel):
-    """Truthful placeholder analysis response until detection is implemented."""
+    """Analysis response that supports both unknown and scored risk states."""
 
     input_id: UUID
     analysis_status: Literal["not_implemented"] = "not_implemented"
-    risk_score: int | None = None
-    severity: Literal["UNKNOWN"] = "UNKNOWN"
+    risk_score: int | None = Field(default=None, ge=0, le=100)
+    severity: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN"] = "UNKNOWN"
     threat: Literal["not_assessed"] = "not_assessed"
-    action: Literal["REVIEW"] = "REVIEW"
+    action: Literal["ALLOW", "REVIEW", "BLOCK"] = "REVIEW"
     indicators: list[str] = Field(default_factory=list)
-    reason: str = "Threat detection and risk scoring are not implemented."
+    reason: str = "Threat detection is not implemented; risk remains unassessed."
 
 
 class SecurityService:
@@ -57,8 +57,10 @@ class SecurityService:
             input_id=normalized_input.id,
             risk_score=risk_assessment.risk_score,
             severity=risk_assessment.severity,
+            action=risk_assessment.recommended_action,
             threat=threat_assessment.threat,
             indicators=threat_assessment.indicators,
+            reason=" ".join(risk_assessment.reasons),
         )
         self.audit_logger.record(
             "analyze", response.action, None, request_id=normalized_input.id

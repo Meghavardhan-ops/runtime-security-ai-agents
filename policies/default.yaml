@@ -1,0 +1,58 @@
+tools:
+  allowed:
+    - calculator
+    - search
+  denied:
+    - shell
+    - execute_command
+    - file_read
+
+data:
+  types:
+    - public
+    - internal
+    - confidential
+    - restricted
+  destinations:
+    - internal
+    - external
+  rules:
+    - data_type: public
+      destination: internal
+      action: ALLOW
+    - data_type: public
+      destination: external
+      action: ALLOW
+    - data_type: internal
+      destination: internal
+      action: ALLOW
+    - data_type: internal
+      destination: external
+      action: REVIEW
+    - data_type: confidential
+      destination: internal
+      action: REVIEW
+    - data_type: confidential
+      destination: external
+      action: BLOCK
+    - data_type: restricted
+      destination: internal
+      action: REVIEW
+    - data_type: restricted
+      destination: external
+      action: BLOCK
+
+actions:
+  rules:
+    - action: delete_file
+      decision: BLOCK
+    - action: send_email
+      decision: BLOCK
+    - action: review_report
+      decision: REVIEW
+    - action: calculate
+      decision: ALLOW
+
+risk:
+  review_threshold: 26
+  block_threshold: 76
