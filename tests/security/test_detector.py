@@ -141,7 +141,7 @@ def test_threat_detector_preserves_source_context(source_type: str) -> None:
         assert "indirect_instruction" in assessment.indicators
 
 
-def test_security_analyze_exposes_detection_and_fails_closed_for_unknown_risk() -> None:
+def test_security_analyze_uses_detected_category_for_risk_scoring() -> None:
     response = client.post(
         "/api/v1/security/analyze",
         json={
@@ -155,12 +155,14 @@ def test_security_analyze_exposes_detection_and_fails_closed_for_unknown_risk() 
     assert response.status_code == 200
     body = response.json()
     assert body["analysis_status"] == "not_implemented"
-    # Detection is available, but the legacy threat category is still
-    # unassessed, so RiskEngine must retain its fail-closed BLOCK result.
-    assert body["risk_score"] == 100
-    assert body["severity"] == "CRITICAL"
-    assert body["action"] == "BLOCK"
+    # Public legacy threat stays unassessed while the typed detector result
+    # supplies the category used by RiskEngine.
+    assert body["risk_score"] == 70
+    assert body["severity"] == "HIGH"
+    assert body["action"] == "REVIEW"
+    assert body["threat"] == "not_assessed"
     assert body["detection_result"]["category"] == "prompt_injection"
+    assert body["detection_result"]["risk_score"] == 75
     assert body["detection_result"]["recommended_action"] == "BLOCK"
 
 
