@@ -57,7 +57,9 @@ def test_monitoring_api_records_decision_metadata_without_sensitive_values() -> 
     tool_event = next(item for item in events if item["event_type"] == "check_tool")
     assert analysis["source_type"] == "file"
     assert analysis["status"] == "review"
-    assert analysis["risk_score"] is None
+    assert analysis["risk_score"] == 100
+    assert analysis["severity"] == "CRITICAL"
+    assert analysis["recommended_action"] == "BLOCK"
     assert tool_event["status"] == "blocked"
     assert tool_event["policy_decision"] == "BLOCK"
     assert tool_event["tool_decision"] == "BLOCK"

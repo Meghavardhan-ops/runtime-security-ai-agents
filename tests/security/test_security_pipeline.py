@@ -65,6 +65,7 @@ class RecordingRiskEngine(RiskEngine):
 
 class RecordingAuditLogger(AuditLogger):
     def __init__(self, events: list[str] | None = None) -> None:
+        super().__init__()
         self.events = events
         self.records: list[tuple[AuditEvent, str, bool | None, UUID | None]] = []
 
@@ -74,11 +75,29 @@ class RecordingAuditLogger(AuditLogger):
         decision: str,
         allowed: bool | None,
         request_id: UUID | None = None,
+        *,
+        source_type: str | None = None,
+        threat_category: str | None = None,
+        severity: str | None = None,
+        risk_score: int | None = None,
+        policy_decision: str | None = None,
+        tool_decision: str | None = None,
     ) -> None:
         if self.events is not None:
             self.events.append("audit_logger")
         self.records.append((event, decision, allowed, request_id))
-        super().record(event, decision, allowed, request_id)
+        super().record(
+            event,
+            decision,
+            allowed,
+            request_id,
+            source_type=source_type,
+            threat_category=threat_category,
+            severity=severity,
+            risk_score=risk_score,
+            policy_decision=policy_decision,
+            tool_decision=tool_decision,
+        )
 
 
 class RecordingPolicyEngine(PolicyEngine):
