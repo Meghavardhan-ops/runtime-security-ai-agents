@@ -1,0 +1,10 @@
+{
+  "name": "benign_request",
+  "source_type": "user_input",
+  "input": "Please summarize this invoice.",
+  "expected": {
+    "category": "benign",
+    "minimum_severity": "LOW",
+    "recommended_action": "ALLOW"
+  }
+}
