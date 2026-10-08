@@ -2,7 +2,7 @@
 
 from typing import Any, Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from backend.core.security_service import SecurityAnalysis, SecurityService
@@ -13,6 +13,7 @@ from backend.gateway.input_gateway import (
     SecurityInputRequest,
 )
 from backend.policy.policy_engine import SecurityDecision
+from backend.monitor.audit_logger import MonitoringEvent
 
 router = APIRouter(prefix="/api/v1/security", tags=["Security"])
 security_service = SecurityService()
@@ -119,3 +120,17 @@ def check_action(request: ActionCheckRequest) -> SecurityDecision:
 def security_status() -> SecurityStatus:
     """Report active interfaces and components that remain unimplemented."""
     return SecurityStatus()
+
+
+@router.get("/monitoring", response_model=list[MonitoringEvent])
+def security_monitoring(
+    limit: int = Query(default=100, ge=1, le=1000),
+) -> list[MonitoringEvent]:
+    """List the newest metadata-only events recorded by the audit logger."""
+    return security_service.audit_logger.events(limit)
+
+
+@router.get("/monitoring/summary")
+def security_monitoring_summary() -> dict[str, object]:
+    """Summarize actual in-process audit events."""
+    return security_service.audit_logger.summary()
