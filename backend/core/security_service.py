@@ -61,7 +61,14 @@ class SecurityService:
             indicators=threat_assessment.indicators,
         )
         self.audit_logger.record(
-            "analyze", response.action, None, request_id=normalized_input.id
+            "analyze",
+            response.action,
+            None,
+            request_id=normalized_input.id,
+            source_type=normalized_input.source_type,
+            threat_category=response.threat,
+            severity=response.severity,
+            risk_score=response.risk_score,
         )
         return response
 
@@ -70,19 +77,28 @@ class SecurityService:
     ) -> SecurityDecision:
         """Check a tool request without invoking it."""
         decision = self.tool_gateway.check(tool_name, arguments)
-        self.audit_logger.record("check_tool", decision.action, decision.allowed)
+        self.audit_logger.record(
+            "check_tool", decision.action, decision.allowed,
+            policy_decision=decision.action, tool_decision=decision.action,
+        )
         return decision
 
     def check_data(self, data_type: str, destination: str) -> SecurityDecision:
         """Check caller-supplied data labels without moving or classifying data."""
         classification = self.data_classifier.classify(data_type, destination)
         decision = self.policy_engine.check_data(classification)
-        self.audit_logger.record("check_data", decision.action, decision.allowed)
+        self.audit_logger.record(
+            "check_data", decision.action, decision.allowed,
+            policy_decision=decision.action,
+        )
         return decision
 
     def check_action(self, action: str, target: str) -> SecurityDecision:
         """Check an action request without contacting or modifying its target."""
         del target
         decision = self.policy_engine.check_action(action)
-        self.audit_logger.record("check_action", decision.action, decision.allowed)
+        self.audit_logger.record(
+            "check_action", decision.action, decision.allowed,
+            policy_decision=decision.action,
+        )
         return decision
