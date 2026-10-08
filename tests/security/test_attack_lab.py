@@ -111,9 +111,9 @@ def test_runner_discovers_all_scenarios_in_filename_order_and_is_deterministic()
     assert benign.actual_recommended_action == "ALLOW"
     assert benign.detection_passed is True
     assert benign.overall_passed is True
-    assert benign.pipeline_risk_score == 100
-    assert benign.pipeline_severity == "CRITICAL"
-    assert benign.pipeline_action == "BLOCK"
+    assert benign.pipeline_risk_score == 0
+    assert benign.pipeline_severity == "LOW"
+    assert benign.pipeline_action == "ALLOW"
 
 
 @pytest.mark.parametrize(

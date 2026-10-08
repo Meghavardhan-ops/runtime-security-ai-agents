@@ -60,7 +60,14 @@ class SecurityService:
         """Re-run ingress normalization before passing input to safe stubs."""
         normalized_input = self.input_gateway.normalize(request)
         threat_assessment = self.threat_detector.analyze(normalized_input)
-        risk_assessment = self.risk_engine.assess(threat_assessment)
+        detection_result = threat_assessment.detection_result
+        detected_category = (
+            detection_result.category if detection_result is not None else None
+        )
+        risk_assessment = self.risk_engine.assess(
+            threat_assessment,
+            threat_category=detected_category,
+        )
         response = SecurityAnalysis(
             input_id=normalized_input.id,
             risk_score=risk_assessment.risk_score,
