@@ -19,8 +19,12 @@ class ThreatAssessment(BaseModel):
     legacy model compatible. ``ThreatDetector.analyze`` always supplies it.
     """
 
-    status: Literal["not_implemented"] = "not_implemented"
-    threat: Literal["not_assessed"] = "not_assessed"
+    # Retain legacy values for direct construction; analyze() reports analyzed.
+    status: Literal["analyzed", "not_assessed", "not_implemented"] = "not_implemented"
+    threat: Literal[
+        "benign", "prompt_injection", "data_exfiltration", "credential_theft",
+        "tool_abuse", "suspicious", "not_assessed",
+    ] = "not_assessed"
     indicators: list[str] = Field(default_factory=list)
     detection_result: DetectionResult | None = None
 
@@ -38,6 +42,8 @@ class ThreatDetector:
             source_type=security_input.source_type,
         )
         return ThreatAssessment(
+            status="analyzed",
+            threat=result.category,
             indicators=result.indicators,
             detection_result=result,
         )

@@ -8,6 +8,7 @@ const COMPONENT_LABELS = {
   risk_engine: "Risk Engine",
   policy_engine: "Policy Engine",
   data_classifier: "Data Classifier",
+  dlp_engine: "DLP Scanner",
   tool_gateway: "Tool Gateway",
   audit_logging: "Audit Logging",
 };
@@ -178,22 +179,100 @@ function renderStatus(status) {
     return;
   }
   let active = 0;
+  let incomplete = 0;
   let unavailable = 0;
   for (const [key, state] of entries) {
     if (state === "active") active += 1;
-    if (state === "not_implemented") unavailable += 1;
+    if (state === "incomplete") incomplete += 1;
+    if (state === "not_implemented" || state === "unavailable") unavailable += 1;
     const item = document.createElement("div");
     item.className = "component-item";
     const name = document.createElement("span");
     name.className = "component-name";
     name.textContent = COMPONENT_LABELS[key] || humanize(key);
     const value = document.createElement("span");
-    value.className = `component-state${state === "active" ? "" : state === "not_implemented" ? " inactive" : " unknown"}`;
+    value.className = `component-state${state === "active" ? "" : state === "incomplete" || state === "not_implemented" || state === "unavailable" ? " inactive" : " unknown"}`;
     value.textContent = humanize(state || "unknown");
     item.append(name, value);
     container.append(item);
   }
-  $("status-summary").textContent = `${active} active · ${unavailable} not implemented`;
+  $("status-summary").textContent = `${active} available · ${incomplete} incomplete · ${unavailable} unavailable`;
+}
+
+function renderAgentEvents(containerId, events) {
+  const rows = $(containerId);
+  rows.replaceChildren();
+  if (!Array.isArray(events) || events.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.className = "table-empty";
+    cell.colSpan = 4;
+    cell.textContent = "No agent decisions recorded yet.";
+    row.append(cell);
+    rows.append(row);
+    return;
+  }
+  for (const event of events) {
+    const row = document.createElement("tr");
+    const agent = document.createElement("td");
+    agent.textContent = event.agent_id ? humanize(event.agent_id) : "Unknown agent";
+    const request = document.createElement("td");
+    const kind = humanize(event.permission_kind || "permission");
+    const subject = humanize(event.permission_subject || "unknown");
+    request.textContent = `${kind}: ${subject}`;
+    const action = document.createElement("td");
+    action.append(badge(event.recommended_action));
+    const timestamp = document.createElement("td");
+    timestamp.className = "mono-value";
+    timestamp.textContent = formatDate(event.timestamp);
+    row.append(agent, request, action, timestamp);
+    rows.append(row);
+  }
+}
+
+function renderAgentPermissions(data) {
+  const cards = $("agent-cards");
+  cards.replaceChildren();
+  const agents = Array.isArray(data.agents) ? data.agents : [];
+  if (agents.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-copy";
+    empty.textContent = "No agent permission profiles are available.";
+    cards.append(empty);
+  }
+  for (const profile of agents) {
+    const card = document.createElement("article");
+    card.className = "agent-card";
+    const name = document.createElement("h3");
+    name.textContent = profile.display_name || humanize(profile.agent_id || "agent");
+    const id = document.createElement("span");
+    id.className = "agent-id";
+    id.textContent = profile.agent_id || "Unknown agent";
+    const tools = document.createElement("p");
+    tools.className = "agent-scope";
+    const toolsLabel = document.createElement("strong");
+    toolsLabel.textContent = "Allowed tools: ";
+    tools.append(toolsLabel, document.createTextNode(
+      Array.isArray(profile.allowed_tools) && profile.allowed_tools.length
+        ? profile.allowed_tools.map(humanize).join(", ") : "None"
+    ));
+    const dataScope = document.createElement("p");
+    dataScope.className = "agent-scope";
+    const dataLabel = document.createElement("strong");
+    dataLabel.textContent = "Allowed data: ";
+    dataScope.append(dataLabel, document.createTextNode(
+      Array.isArray(profile.allowed_data_classifications) && profile.allowed_data_classifications.length
+        ? profile.allowed_data_classifications.map(humanize).join(", ") : "None"
+    ));
+    const identity = document.createElement("p");
+    identity.className = "agent-scope";
+    identity.textContent = `Identity: ${humanize(profile.identity_verification || "unknown")}`;
+    card.append(name, id, tools, dataScope, identity);
+    cards.append(card);
+  }
+  $("agent-identity-note").textContent = data.identity_note || "Identity verification status unavailable.";
+  renderAgentEvents("agent-decision-rows", data.recent_decisions);
+  renderAgentEvents("agent-denial-rows", data.denied_requests);
 }
 
 async function loadDashboard() {
@@ -202,8 +281,9 @@ async function loadDashboard() {
     getJson(`${API}/monitoring/summary`),
     getJson(`${API}/monitoring?limit=12`),
     getJson(`${API}/status`),
+    getJson(`${API}/agent-permissions?limit=50`),
   ]);
-  const [summary, events, status] = outcomes;
+  const [summary, events, status, agents] = outcomes;
   const failed = [];
   if (summary.status === "fulfilled") renderSummary(summary.value);
   else failed.push("summary");
@@ -211,6 +291,8 @@ async function loadDashboard() {
   else failed.push("events");
   if (status.status === "fulfilled") renderStatus(status.value);
   else failed.push("status");
+  if (agents.status === "fulfilled") renderAgentPermissions(agents.value);
+  else failed.push("agent permissions");
   if (failed.length === outcomes.length) {
     setConnection(false, "Security API unavailable");
     showPageError("Could not connect to the AgentShield API. Check that the backend is running, then refresh.");

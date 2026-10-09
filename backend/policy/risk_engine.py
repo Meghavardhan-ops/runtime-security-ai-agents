@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.detector.threat_detector import ThreatAssessment
+from backend.detector.models import DetectionResult
 
 Severity = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 RecommendedAction = Literal["ALLOW", "REVIEW", "BLOCK"]
@@ -62,6 +63,7 @@ class RiskEngine:
         assessment: ThreatAssessment,
         *,
         threat_category: str | None = None,
+        detection_result: DetectionResult | None = None,
     ) -> RiskAssessment:
         """Return a deterministic risk result from threat and indicator labels.
 
@@ -69,9 +71,16 @@ class RiskEngine:
         result. When it is absent, the legacy assessment field is used so
         unassessed inputs continue to fail closed.
         """
+        validated_result = detection_result
+        if validated_result is None:
+            candidate = getattr(assessment, "detection_result", None)
+            if isinstance(candidate, DetectionResult):
+                validated_result = candidate
         source_category = self._normalize_label(
             threat_category
             if threat_category is not None
+            else validated_result.category
+            if validated_result is not None
             else getattr(assessment, "threat", None)
         ) or "not_assessed"
         base_score = THREAT_BASE_SCORES.get(source_category)
@@ -113,6 +122,12 @@ class RiskEngine:
                 "Invalid detector-provided risk metadata; fail-closed security decision.",
             )
         detector_score, detector_severity, detector_reasons = future_fields
+        if validated_result is not None:
+            detector_score = max(detector_score or 0, validated_result.risk_score)
+            validated_severity = self._normalize_label(validated_result.severity)
+            floor = SEVERITY_SCORE_FLOORS[validated_severity]
+            detector_score = max(detector_score, floor)
+            detector_severity = validated_severity
         if detector_score is not None:
             if detector_score > score:
                 reasons.append(

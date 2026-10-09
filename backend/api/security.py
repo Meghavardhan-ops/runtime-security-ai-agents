@@ -14,6 +14,8 @@ from backend.gateway.input_gateway import (
 )
 from backend.policy.policy_engine import SecurityDecision
 from backend.monitor.audit_logger import MonitoringEvent
+from backend.policy.dlp import DLPResult
+from backend.policy.agent_permissions import AgentPermissionProfile
 
 router = APIRouter(prefix="/api/v1/security", tags=["Security"])
 security_service = SecurityService()
@@ -53,6 +55,59 @@ class ActionCheckRequest(BaseModel):
     target: NonEmptyTarget
 
 
+class DataContentCheckRequest(BaseModel):
+    """Untrusted content to scan; caller labels are context, never scan results."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    data_type: NonEmptyName
+    destination: NonEmptyName
+    content: str
+
+
+class AgentToolCheckRequest(BaseModel):
+    """A synthetic demo agent ID and inert tool request metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: NonEmptyName
+    tool_name: NonEmptyName
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentDataContentCheckRequest(BaseModel):
+    """Synthetic agent context and content to scan before data authorization."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: NonEmptyName
+    data_type: NonEmptyName
+    destination: NonEmptyName
+    content: str
+
+
+class DataContentCheckResponse(BaseModel):
+    scan: DLPResult
+    decision: SecurityDecision
+
+
+class AgentToolCheckResponse(SecurityDecision):
+    agent_id: str
+    tool_name: str
+
+
+class AgentDataContentCheckResponse(BaseModel):
+    scan: DLPResult
+    decision: SecurityDecision
+
+
+class AgentPermissionsView(BaseModel):
+    agents: list[AgentPermissionProfile]
+    recent_decisions: list[MonitoringEvent]
+    denied_requests: list[MonitoringEvent]
+    identity_note: str
+
+
 class ToolCheckResponse(SecurityDecision):
     """Decision plus the requested tool identifier, without its arguments."""
 
@@ -65,10 +120,11 @@ class SecurityStatus(BaseModel):
     security_router: str = "active"
     input_gateway: str = "active"
     threat_detector: str = "active"
-    risk_engine: str = "not_implemented"
-    policy_engine: str = "not_implemented"
-    data_classifier: str = "not_implemented"
-    tool_gateway: str = "not_implemented"
+    risk_engine: str = "active"
+    policy_engine: str = "active"
+    data_classifier: str = "incomplete"
+    dlp_engine: str = "active"
+    tool_gateway: str = "active"
     audit_logging: str = "active"
 
 
@@ -110,6 +166,63 @@ def check_data(request: DataCheckRequest) -> SecurityDecision:
     return security_service.check_data(request.data_type, request.destination)
 
 
+@router.post("/check-data-content", response_model=DataContentCheckResponse)
+def check_data_content(request: DataContentCheckRequest) -> DataContentCheckResponse:
+    """Scan supplied content and return only redacted indicators plus a decision."""
+    scan, decision = security_service.check_data_with_content(
+        request.data_type, request.destination, request.content
+    )
+    return DataContentCheckResponse(scan=scan, decision=decision)
+
+
+@router.post("/check-agent-tool", response_model=AgentToolCheckResponse)
+def check_agent_tool(request: AgentToolCheckRequest) -> AgentToolCheckResponse:
+    """Authorize a tool for a synthetic demo agent; never invoke the tool."""
+    decision = security_service.check_agent_tool(
+        request.agent_id, request.tool_name, request.arguments
+    )
+    return AgentToolCheckResponse(
+        agent_id=request.agent_id,
+        tool_name=request.tool_name,
+        **decision.model_dump(),
+    )
+
+
+@router.post("/check-agent-data-content", response_model=AgentDataContentCheckResponse)
+def check_agent_data_content(
+    request: AgentDataContentCheckRequest,
+) -> AgentDataContentCheckResponse:
+    """Scan supplied content, then enforce synthetic agent and policy scopes."""
+    scan, decision = security_service.check_agent_data_with_content(
+        request.agent_id,
+        request.data_type,
+        request.destination,
+        request.content,
+    )
+    return AgentDataContentCheckResponse(scan=scan, decision=decision)
+
+
+@router.get("/agent-permissions", response_model=AgentPermissionsView)
+def agent_permissions_view(
+    limit: int = Query(default=50, ge=1, le=200),
+) -> AgentPermissionsView:
+    """Expose local demo permissions and safe recent authorization metadata."""
+    decisions = [
+        event
+        for event in security_service.audit_logger.events(limit=1000)
+        if event.agent_id is not None
+    ][:limit]
+    return AgentPermissionsView(
+        agents=list(security_service.agent_permissions.list_profiles()),
+        recent_decisions=decisions,
+        denied_requests=[event for event in decisions if event.status == "blocked"],
+        identity_note=(
+            "Agent IDs are caller supplied demonstration labels. This API does not "
+            "authenticate or verify agent identity."
+        ),
+    )
+
+
 @router.post("/check-action", response_model=SecurityDecision)
 def check_action(request: ActionCheckRequest) -> SecurityDecision:
     """Return a decision only; the requested action is never performed."""
@@ -118,8 +231,22 @@ def check_action(request: ActionCheckRequest) -> SecurityDecision:
 
 @router.get("/status", response_model=SecurityStatus)
 def security_status() -> SecurityStatus:
-    """Report active interfaces and components that remain unimplemented."""
-    return SecurityStatus()
+    """Report implemented controls and explicitly incomplete placeholders."""
+    service = security_service
+    policy_available = service.policy_engine.is_available
+    return SecurityStatus(
+        security_router="active",
+        input_gateway="active",
+        threat_detector="active",
+        risk_engine="active",
+        policy_engine="active" if policy_available else "unavailable",
+        data_classifier=(
+            "active" if service.data_classifier.is_available else "incomplete"
+        ),
+        dlp_engine="active",
+        tool_gateway="active",
+        audit_logging="active",
+    )
 
 
 @router.get("/monitoring", response_model=list[MonitoringEvent])

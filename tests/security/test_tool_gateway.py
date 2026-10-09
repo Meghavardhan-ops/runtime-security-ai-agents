@@ -1,6 +1,7 @@
 """Tests for the check-only Tool Gateway authorization boundary."""
 
 from typing import Any
+from pathlib import Path
 
 import pytest
 
@@ -21,6 +22,7 @@ class StubPolicyEngine:
         )
         self.error = error
         self.tool_names: list[str] = []
+        self.is_available = True
 
     def check_tool(self, tool_name: str) -> SecurityDecision:
         self.tool_names.append(tool_name)
@@ -96,6 +98,24 @@ def test_oversized_or_deep_arguments_return_block() -> None:
     assert gateway.check("calculator", {"text": "x" * 70_000}).action == "BLOCK"
     assert gateway.check("calculator", {"nested": deeply_nested}).action == "BLOCK"
     assert policy.tool_names == []
+
+
+def test_fallback_block_reports_actual_policy_availability() -> None:
+    available_gateway = ToolGateway(PolicyEngine())
+    missing_policy_path = Path(__file__).with_name(".missing-tool-gateway-policy.yaml")
+    assert not missing_policy_path.exists()
+    unavailable_gateway = ToolGateway(PolicyEngine(missing_policy_path))
+    oversized_arguments = {"text": "x" * 70_000}
+
+    available = available_gateway.check("calculator", oversized_arguments)
+    unavailable = unavailable_gateway.check("calculator", oversized_arguments)
+
+    assert available.action == "BLOCK"
+    assert available.allowed is False
+    assert available.policy_status == "available"
+    assert unavailable.action == "BLOCK"
+    assert unavailable.allowed is False
+    assert unavailable.policy_status == "unavailable"
 
 
 @pytest.mark.parametrize("action", ["ALLOW", "REVIEW", "BLOCK"])
