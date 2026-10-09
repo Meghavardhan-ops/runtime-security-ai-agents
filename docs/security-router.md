@@ -1,113 +1,39 @@
 # Security Router
 
-## Purpose
+## Purpose and limits
 
-The Security Router is a versioned control-plane API for requesting security
-checks. It accepts structured requests and delegates them to internal component
-interfaces. It does not run tools, transfer data, perform requested actions, or
-claim that inputs are safe.
+The versioned Security API at `/api/v1/security` provides deterministic, check-only security decisions. It does not execute tools, transfer data, run requested actions, or authenticate synthetic agent IDs. The dashboard displays decisions and component state returned by this API.
 
-The router is available under `/api/v1/security`. `GET /health` and the Input
-Gateway at `POST /api/v1/inputs` remain available.
+## Request paths
 
-## Implemented now
+- `POST /analyze`: Input Gateway normalization → Threat Detector → Risk Engine → Policy Engine risk evaluation → metadata-only audit record. Unknown assessments fail closed. The final action uses the strongest risk/policy result.
+- `POST /check-tool`: Tool Gateway validates bounded, JSON-like inert arguments and consults the Policy Engine. Arguments are never executed or logged.
+- `POST /check-data`: evaluates caller-provided labels only. This endpoint cannot verify those labels and forces unknown classification for unverified external transfers.
+- `POST /check-data-content`: DLP scans supplied text and returns indicator names and scan status, never matched secret values. DLP findings can raise the effective classification before Policy Engine evaluation. Since DLP no-match cannot verify the caller's label, a policy-allowed content flow returns `REVIEW` while the Data Classifier is incomplete. Existing policy `BLOCK` results remain `BLOCK`.
+- `POST /check-action`: policy check only; it does not contact its target.
+- `GET /monitoring` and `/monitoring/summary`: return safe event metadata held in a bounded in-process buffer. Events are lost on process restart and are not shared across workers.
+- `GET /status`: reports active implemented controls and marks the label-carrying Data Classifier `incomplete`.
 
-- The Security Router is registered in the FastAPI application.
-- Requests are validated with Pydantic models that reject unknown fields and
-  blank required labels.
-- `/analyze` sends content through the existing Input Gateway, including when
-  the request is a previously returned `SecurityInput`. Gateway-owned IDs,
-  timestamps, trust labels, and hashes are regenerated.
-- `/check-tool`, `/check-data`, and `/check-action` are decision-only endpoints.
-- Unimplemented authorization checks fail closed. Tool arguments and action
-  targets are not executed or returned.
-- Audit logging records only a fixed event name, request ID when available,
-  decision, and allow status. It omits content, arguments, and targets.
-- `GET /status` distinguishes active API interfaces from unimplemented
-  security components.
+## Synthetic agent permissions
 
-The `/analyze` response reports `analysis_status: "not_implemented"`,
-`threat: "not_assessed"`, an unknown severity, a null risk score, and a review
-action. These values explicitly do not represent a threat assessment.
+- `GET /agent-permissions` returns the local registry, allowed tools and data classifications, and recent/denied decisions drawn from the actual in-process audit buffer.
+- `POST /check-agent-tool` first checks the local synthetic agent scope and then the existing Tool Gateway and Policy Engine. It never executes a tool.
+- `POST /check-agent-data-content` scans supplied content, checks the resulting effective classification against the agent scope, then applies the Policy Engine. Because the current Data Classifier is a label-carrying placeholder and DLP no-match is not proof of public content, an otherwise-allowed in-scope request returns `REVIEW` until a trusted classifier is implemented. Policy or scope `BLOCK` decisions remain `BLOCK`.
 
-## Endpoints
+The registry contains only `agent-research` and `agent-analyst`. Their IDs are caller-supplied demonstration labels, **not authenticated identity claims**. This application has no authentication or trusted agent execution context. A client can claim either registered ID, so these permissions demonstrate deterministic scope checks only and must not be used as production identity enforcement. Integrate IDs from a verified server-side principal before relying on them.
 
-### `POST /api/v1/security/analyze`
+Agent audit events retain only a registered ID (or `unknown_agent`), request kind, a small allow-listed resource label, decision, and timestamp. Raw prompts, DLP matches, secrets, and tool arguments are never placed in the monitoring record.
 
-Accepts either the Input Gateway request shape:
+## Component status
 
-```json
-{
-  "source_type": "text",
-  "source_name": "task.txt",
-  "content": "Summarize the quarterly report.",
-  "metadata": {}
-}
-```
+The Threat Detector and Risk Engine operate deterministically on request content and typed detector results. The Policy Engine evaluates local validated YAML rules. DLP uses bounded deterministic pattern scanning and does not certify that unmatched content is safe. The Data Classifier only carries labels; it does not independently inspect content, so it remains incomplete. The Tool Gateway only authorizes requests and has no execution method. Audit events are metadata-only, bounded, and in memory.
 
-or a `SecurityInput` response from `POST /api/v1/inputs`. In both cases the
-request is passed through the Input Gateway again. The response is structured
-and explicitly marked unimplemented:
+If the local policy configuration cannot be loaded, policy status is unavailable and policy decisions fail closed. The agent registry does not authenticate identities and does not replace the Policy Engine.
 
-```json
-{
-  "input_id": "generated-uuid",
-  "analysis_status": "not_implemented",
-  "risk_score": null,
-  "severity": "UNKNOWN",
-  "threat": "not_assessed",
-  "action": "REVIEW",
-  "indicators": [],
-  "reason": "Threat detection and risk scoring are not implemented."
-}
-```
+## Response compatibility
 
-### `POST /api/v1/security/check-tool`
+Response fields and the `ALLOW` / `REVIEW` / `BLOCK` action vocabulary remain unchanged. `SecurityDecision.allowed` is true only for `ALLOW`; `REVIEW` and `BLOCK` both deny immediate access. For `/check-data-content` and `/check-agent-data-content`, requests that could previously have returned `ALLOW` solely from a caller-supplied label now return `REVIEW` when the configured policy allows them but content classification is unverified; existing policy or agent-scope `BLOCK` results remain `BLOCK`. DLP responses contain scan status, classification metadata, and indicator names, never matched values or source content. `/status` reports policy availability as `active` or `unavailable` and keeps the current placeholder Data Classifier as `incomplete`.
 
-Request: `{"tool_name":"file_read","arguments":{}}`.
+`SecurityDecision.policy_status` now reports `available` or `unavailable` for decisions produced by the configured Policy Engine and Tool Gateway; older direct model construction using `not_implemented` remains accepted for compatibility. Consumers should handle all three values during migration and should use `/status` or a runtime decision for current availability. `ThreatAssessment.status` likewise continues accepting the legacy `not_implemented` value, while `ThreatDetector.analyze()` emits `analyzed` and the runtime `/analyze` response uses `analysis_status: analyzed` or `fail_closed`.
 
-It returns the requested `tool_name`, `allowed`, `action`, `reason`, and
-`policy_status`. It always denies tool access while the Policy Engine is
-unavailable. It never returns arguments or calls a tool.
-
-### `POST /api/v1/security/check-data`
-
-Request: `{"data_type":"confidential","destination":"external"}`.
-
-It denies data movement while authorization policy is unavailable. The
-classification and destination are caller-provided labels; the Data Classifier
-does not verify the underlying data.
-
-### `POST /api/v1/security/check-action`
-
-Request: `{"action":"send_email","target":"external@example.com"}`.
-
-It denies the action while policy evaluation is unavailable. It does not send
-email or contact the target.
-
-### `GET /api/v1/security/status`
-
-Returns status for the router, Input Gateway, threat detector, risk engine,
-policy engine, data classifier, tool gateway, and audit logging.
-
-## Component boundaries
-
-The router delegates orchestration to `SecurityService`. That service calls
-separate threat-detector, risk-engine, data-classifier, policy-engine,
-tool-gateway, and audit-logger interfaces. The threat detector and risk engine
-return explicitly unimplemented results. The policy stub denies by default.
-The Tool Gateway interface only checks a request and has no execution method.
-
-### Planned for later
-
-- **Threat Detector:** inspect normalized untrusted inputs and return evidence.
-- **Risk Engine:** calculate a documented risk score from evidence and context.
-- **Policy Engine:** evaluate identity, scope, risk, data sensitivity, and rules.
-- **Data Classifier:** classify content independently of caller-provided labels.
-- **Tool Gateway:** mediate and execute only explicitly authorized capabilities.
-- **Persistent audit system:** store access-controlled, tamper-aware records.
-
-These capabilities are not implemented by the current stubs. The AI/LLM is not
-an authorization boundary: a model may suggest actions, but only an external
-policy enforcement layer should authorize them. Until that layer exists, these
-check endpoints deny access and never perform the requested operations.
+`POST /analyze` continues to use the existing response model. Runtime service responses set `analysis_status` to `analyzed` or `fail_closed`, and `threat` to a detector category or `not_assessed`; the legacy model defaults (`not_implemented` and `not_assessed`) remain for callers that directly construct the response model without runtime analysis. The `action` enum has not changed.

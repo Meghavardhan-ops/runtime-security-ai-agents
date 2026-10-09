@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from backend.policy.data_classifier import DataClassification
-from backend.policy.policy_engine import PolicyEngine
+from backend.policy.policy_engine import PolicyEngine, SecurityDecision
 from backend.policy.risk_engine import RiskAssessment
 
 
@@ -182,8 +182,27 @@ def test_fail_closed_risk_assessment_is_blocked(engine: PolicyEngine) -> None:
 def test_missing_policy_fails_closed(local_policy_path: Path) -> None:
     engine = PolicyEngine(local_policy_path)
 
-    assert engine.check_tool("calculator").action == "BLOCK"
+    assert engine.is_available is False
+    decision = engine.check_tool("calculator")
+    assert decision.action == "BLOCK"
+    assert decision.policy_status == "unavailable"
     assert engine.check_action("calculate").action == "BLOCK"
+
+
+def test_policy_availability_is_exposed_read_only(engine: PolicyEngine) -> None:
+    assert engine.is_available is True
+    assert engine.check_tool("calculator").policy_status == "available"
+
+
+def test_legacy_security_decision_policy_status_remains_accepted() -> None:
+    decision = SecurityDecision(
+        allowed=False, action="REVIEW", reason="Legacy fixture.",
+        policy_status="not_implemented",
+    )
+    defaulted = SecurityDecision(allowed=False, action="REVIEW", reason="Default fixture.")
+
+    assert decision.policy_status == "not_implemented"
+    assert defaulted.policy_status == "not_implemented"
 
 
 @pytest.mark.parametrize(

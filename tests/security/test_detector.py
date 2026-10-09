@@ -112,10 +112,15 @@ def test_existing_threat_detector_analyze_contract_is_preserved() -> None:
 
     assessment = ThreatDetector().analyze(normalized)
 
-    assert assessment.status == "not_implemented"
-    assert assessment.threat == "not_assessed"
+    assert assessment.status == "analyzed"
+    assert assessment.threat == "prompt_injection"
     assert assessment.detection_result.category == "prompt_injection"
     assert "indirect_instruction" in assessment.indicators
+
+
+def test_legacy_threat_assessment_status_remains_accepted() -> None:
+    assert ThreatAssessment(status="not_implemented").status == "not_implemented"
+    assert ThreatAssessment().status == "not_implemented"
 
 
 @pytest.mark.parametrize(
@@ -154,13 +159,11 @@ def test_security_analyze_uses_detected_category_for_risk_scoring() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["analysis_status"] == "not_implemented"
-    # Public legacy threat stays unassessed while the typed detector result
-    # supplies the category used by RiskEngine.
-    assert body["risk_score"] == 70
-    assert body["severity"] == "HIGH"
-    assert body["action"] == "REVIEW"
-    assert body["threat"] == "not_assessed"
+    assert body["analysis_status"] == "analyzed"
+    assert body["risk_score"] == 76
+    assert body["severity"] == "CRITICAL"
+    assert body["action"] == "BLOCK"
+    assert body["threat"] == "prompt_injection"
     assert body["detection_result"]["category"] == "prompt_injection"
     assert body["detection_result"]["risk_score"] == 75
     assert body["detection_result"]["recommended_action"] == "BLOCK"

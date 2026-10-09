@@ -12,7 +12,7 @@ from backend.policy.data_classifier import DataClassification
 from backend.policy.risk_engine import RiskAssessment
 
 DecisionAction = Literal["ALLOW", "REVIEW", "BLOCK"]
-PolicyStatus = Literal["not_implemented"]
+PolicyStatus = Literal["available", "unavailable", "not_implemented"]
 
 
 class SecurityDecision(BaseModel):
@@ -23,7 +23,8 @@ class SecurityDecision(BaseModel):
     allowed: bool
     action: DecisionAction
     reason: str
-    # Retained for compatibility with the existing Security Router response.
+    # Legacy direct model construction keeps its former default. Runtime
+    # policy and gateway decisions set the actual availability explicitly.
     policy_status: PolicyStatus = "not_implemented"
 
 
@@ -197,6 +198,11 @@ class PolicyEngine:
         )
         self._policy = self._load_policy(self.policy_path)
 
+    @property
+    def is_available(self) -> bool:
+        """Whether a validated policy was loaded successfully."""
+        return self._policy is not None
+
     @staticmethod
     def _load_policy(path: Path) -> PolicyConfig | None:
         try:
@@ -220,12 +226,12 @@ class PolicyEngine:
         normalized = value.strip().casefold()
         return normalized or None
 
-    @staticmethod
-    def _decision(action: DecisionAction, reason: str) -> SecurityDecision:
+    def _decision(self, action: DecisionAction, reason: str) -> SecurityDecision:
         return SecurityDecision(
             allowed=action == "ALLOW",
             action=action,
             reason=reason,
+            policy_status="available" if self.is_available else "unavailable",
         )
 
     def check_tool(self, tool_name: str) -> SecurityDecision:

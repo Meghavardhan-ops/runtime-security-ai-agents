@@ -101,6 +101,19 @@ h1 { margin-bottom: 6px; font: 600 clamp(25px, 3vw, 32px) var(--display); letter
 .events-panel { padding: 18px 0 0; overflow: hidden; }
 .events-heading-row { padding: 0 19px; align-items: center; }
 .event-cap { color: var(--faint); font: 10px var(--mono); }
+.agent-permissions-panel { margin-top: 15px; }
+.agent-identity-note { margin: -5px 0 15px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.agent-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.agent-card { padding: 13px; border: 1px solid rgba(151,177,207,.12); border-radius: 8px; background: rgba(5,16,29,.35); }
+.agent-card h3, .agent-lists-grid h3 { margin: 0 0 8px; color: #d5e1ed; font-size: 12px; }
+.agent-id { display: block; margin-bottom: 10px; color: var(--cyan); font: 10px var(--mono); }
+.agent-scope { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.agent-scope strong { color: #aebdcb; font-weight: 600; }
+.agent-lists-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 20px; }
+.agent-lists-grid > div { min-width: 0; }
+.agent-lists-grid table { width: 100%; }
+.agent-lists-grid td, .agent-lists-grid th { padding-left: 8px; padding-right: 8px; }
+.agent-lists-grid th:first-child, .agent-lists-grid td:first-child { padding-left: 8px; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }
 thead { background: rgba(5,15,26,.38); }
@@ -163,6 +176,7 @@ td { padding: 11px 13px; border-top: 1px solid rgba(151,177,207,.08); color: #ae
   .page-heading { align-items: flex-start; flex-direction: column; padding: 24px 0 17px; }.connection-banner { min-height: 30px; }
   .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }.metric-card { min-height: 119px; padding: 12px; }.metric-value { font-size: 28px; }
   .insights-grid { grid-template-columns: 1fr; gap: 9px; margin-top: 9px; }
+  .agent-cards, .agent-lists-grid { grid-template-columns: 1fr; }
   .panel, .status-panel, .events-panel { margin-top: 9px; }.insights-grid .panel { margin-top: 0; }
   .component-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .test-panel { grid-template-columns: 1fr; gap: 17px; padding: 16px; }

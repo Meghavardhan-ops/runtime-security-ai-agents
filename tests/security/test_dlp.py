@@ -183,6 +183,23 @@ def test_no_pattern_match_does_not_certify_external_content_as_public() -> None:
     assert decision.allowed is False
 
 
+def test_no_pattern_match_does_not_certify_internal_content_from_caller_label() -> None:
+    service = SecurityService()
+    content = "Internal compensation table: employee A earns 250000 per year."
+
+    scan, decision = service.check_data_with_content("public", "internal", content)
+
+    assert scan.classification == "no_pattern_detected"
+    assert decision.action == "REVIEW"
+    assert decision.allowed is False
+    event = service.audit_logger.events()[0]
+    assert event.policy_decision == "ALLOW"
+    assert event.recommended_action == "REVIEW"
+    assert event.status == "review"
+    assert content not in str(scan.model_dump())
+    assert content not in str(event.model_dump())
+
+
 def test_policy_engine_decides_after_dlp_classification() -> None:
     service = SecurityService()
 

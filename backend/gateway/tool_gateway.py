@@ -132,6 +132,15 @@ class ToolGateway:
 
         return True
 
-    @staticmethod
-    def _block(reason: str) -> SecurityDecision:
-        return SecurityDecision(allowed=False, action="BLOCK", reason=reason)
+    def _block(self, reason: str) -> SecurityDecision:
+        policy_status = (
+            "available"
+            if getattr(self._policy_engine, "is_available", False) is True
+            else "unavailable"
+        )
+        return SecurityDecision(
+            allowed=False,
+            action="BLOCK",
+            reason=reason,
+            policy_status=policy_status,
+        )
