@@ -131,4 +131,3 @@ class Detector:
 def detect(input_text: str, source_type: str | None = None) -> DetectionResult:
     """Convenience entry point for callers that only have text and a source."""
     return Detector().detect(input_text, source_type=source_type)
-

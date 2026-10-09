@@ -205,4 +205,3 @@ def detect_indicators(normalized_text: str, source_type: str | None = None) -> s
         indicators.add("suspicious_instruction_context")
 
     return indicators
-

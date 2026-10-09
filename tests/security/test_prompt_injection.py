@@ -62,4 +62,3 @@ def test_does_not_flag_ordinary_use_of_the_word_instruction() -> None:
     assert result.category == "benign"
     assert result.risk_score == 0
     assert result.recommended_action == "ALLOW"
-

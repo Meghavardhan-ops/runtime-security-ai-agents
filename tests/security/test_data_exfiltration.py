@@ -49,4 +49,3 @@ def test_transfer_words_without_sensitive_context_are_not_exfiltration() -> None
     assert result.category == "benign"
     assert result.risk_score == 0
     assert "external_data_exfiltration" not in result.indicators
-

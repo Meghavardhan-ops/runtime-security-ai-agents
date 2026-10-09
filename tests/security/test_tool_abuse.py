@@ -33,4 +33,3 @@ def test_external_api_request_is_reviewed_without_execution() -> None:
     assert result.category == "tool_abuse"
     assert result.recommended_action == "REVIEW"
     assert "external_api_request" in result.indicators
-
