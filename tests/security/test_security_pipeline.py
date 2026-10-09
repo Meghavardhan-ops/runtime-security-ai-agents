@@ -471,6 +471,25 @@ def test_monitoring_uses_real_category_and_final_action_status() -> None:
     assert service.audit_logger.summary()["blocked_events"] == 1
 
 
+def test_benign_analysis_monitoring_records_allow_and_policy_decision() -> None:
+    service = SecurityService()
+    response = service.analyze(SecurityInputRequest(
+        source_type="text",
+        source_name="benign-monitoring.txt",
+        content="Summarize the public project notes.",
+    ))
+
+    event = service.audit_logger.events()[0]
+    summary = service.audit_logger.summary()
+    assert response.action == "ALLOW"
+    assert event.status == "allowed"
+    assert event.recommended_action == "ALLOW"
+    assert event.policy_decision == "ALLOW"
+    assert summary["allowed_events"] == 1
+    assert summary["review_events"] == 0
+    assert summary["blocked_events"] == 0
+
+
 def test_content_check_route_redacts_secrets_and_component_status_is_truthful() -> None:
     secret = "TEST_ONLY_FAKE_API_KEY_VALUE"
     response = check_data_content(DataContentCheckRequest(
