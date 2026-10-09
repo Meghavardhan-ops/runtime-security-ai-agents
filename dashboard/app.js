@@ -336,47 +336,102 @@ function renderAnalysis(result) {
   panel.hidden = false;
 }
 
+function updateAnalysisInputMode() {
+  const imageMode = $("source-type").value === "image";
+  $("text-input-fields").hidden = imageMode;
+  $("test-content").required = !imageMode;
+  $("image-upload-fields").hidden = !imageMode;
+  $("image-file").required = imageMode;
+  $("analysis-privacy-note").textContent = imageMode
+    ? "Image bytes and extracted text are not returned in results or event lists."
+    : "Submitted text is not echoed into the results or event list.";
+  if (!$("analyze-button").disabled) {
+    $("analyze-button").querySelector("span").textContent = imageMode
+      ? "Analyze image"
+      : "Analyze request";
+  }
+}
+
+function imageErrorMessage(status) {
+  const messages = {
+    413: "The image exceeds the configured upload size or pixel limit.",
+    415: "Choose a supported PNG or JPEG image.",
+    422: "The uploaded file is not a valid, decodable PNG or JPEG image.",
+    502: "Image text extraction failed. The image was not analyzed.",
+    503: "Image analysis is unavailable because the Tesseract OCR engine is not configured.",
+  };
+  return messages[status] || "Image analysis failed. Check the file and try again.";
+}
+
 async function submitAnalysis(event) {
   event.preventDefault();
-  const content = $("test-content").value;
   const sourceType = $("source-type").value;
+  const imageMode = sourceType === "image";
+  const content = $("test-content").value;
   const errorBox = $("analyze-error");
   const resultPanel = $("analysis-result");
   const button = $("analyze-button");
   errorBox.hidden = true;
   errorBox.textContent = "";
   resultPanel.hidden = true;
-  if (!content.trim()) {
+  const selectedFile = $("image-file").files[0];
+  if (imageMode && !selectedFile) {
+    errorBox.textContent = "Select a PNG or JPEG image to analyze.";
+    errorBox.hidden = false;
+    return;
+  }
+  if (!imageMode && !content.trim()) {
     errorBox.textContent = "Enter a non-empty test request.";
     errorBox.hidden = false;
     return;
   }
   button.disabled = true;
-  button.querySelector("span").textContent = "Analyzing…";
+  button.querySelector("span").textContent = imageMode ? "Analyzing image…" : "Analyzing…";
   try {
-    const response = await fetch(`${API}/analyze`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({
-        source_type: sourceType,
-        source_name: "dashboard-test-request",
-        content,
-        metadata: {},
-      }),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    let response;
+    if (imageMode) {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      response = await fetch(`${API}/analyze-image`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        body: formData,
+      });
+      if (!response.ok) throw new Error(`IMAGE_HTTP_${response.status}`);
+    } else {
+      response = await fetch(`${API}/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          source_type: sourceType,
+          source_name: "dashboard-test-request",
+          content,
+          metadata: {},
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    }
     renderAnalysis(await response.json());
     await loadDashboard();
   } catch (error) {
-    const status = error.message.startsWith("HTTP ") ? ` (${error.message})` : "";
-    errorBox.textContent = `The analysis request could not be completed${status}. Check the API connection and try again.`;
+    if (imageMode) {
+      const statusMatch = error.message.match(/^IMAGE_HTTP_(\d+)$/);
+      errorBox.textContent = statusMatch
+        ? imageErrorMessage(Number(statusMatch[1]))
+        : "The image analysis request could not be completed. Check the API connection and try again.";
+    } else {
+      const status = error.message.startsWith("HTTP ") ? ` (${error.message})` : "";
+      errorBox.textContent = `The analysis request could not be completed${status}. Check the API connection and try again.`;
+    }
     errorBox.hidden = false;
   } finally {
     button.disabled = false;
-    button.querySelector("span").textContent = "Analyze request";
+    updateAnalysisInputMode();
   }
 }
 
+$("source-type").addEventListener("change", updateAnalysisInputMode);
+updateAnalysisInputMode();
 $("analyze-form").addEventListener("submit", submitAnalysis);
 $("refresh-button").addEventListener("click", loadDashboard);
 loadDashboard();
