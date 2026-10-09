@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.detector.detector import Detector, DetectionResult, detect
-from backend.detector.threat_detector import ThreatDetector
+from backend.detector.threat_detector import ThreatAssessment, ThreatDetector
 from backend.gateway.input_gateway import InputGateway, SecurityInputRequest
 from backend.main import app
 
