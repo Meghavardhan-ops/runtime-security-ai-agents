@@ -47,6 +47,51 @@ def test_not_assessed_fails_closed() -> None:
     assert result.source_category == "not_assessed"
 
 
+def test_unassessed_assessment_can_use_a_validated_detected_category() -> None:
+    result = RiskEngine().assess(ThreatAssessment(), threat_category="benign")
+
+    assert result.status == "scored"
+    assert (result.risk_score, result.severity, result.recommended_action) == (
+        0,
+        "LOW",
+        "ALLOW",
+    )
+    assert result.source_category == "benign"
+
+
+def test_detected_category_does_not_double_count_its_indicators() -> None:
+    assessment_with_detector_evidence = ThreatAssessment(
+        indicators=["credential_access", "sensitive_file_access"]
+    )
+
+    result = RiskEngine().assess(
+        assessment_with_detector_evidence,
+        threat_category="credential_theft",
+    )
+
+    assert result.risk_score == 90
+    assert result.severity == "CRITICAL"
+    assert result.recommended_action == "BLOCK"
+    assert result.source_category == "credential_theft"
+    assert result.reasons == [
+        "Threat category 'credential_theft' has base score 90."
+    ]
+
+
+def test_unknown_category_override_fails_closed() -> None:
+    result = RiskEngine().assess(
+        ThreatAssessment(), threat_category="future_unknown_category"
+    )
+
+    assert result.status == "fail_closed"
+    assert result.source_category == "future_unknown_category"
+    assert (result.risk_score, result.severity, result.recommended_action) == (
+        100,
+        "CRITICAL",
+        "BLOCK",
+    )
+
+
 def test_suspicious_threat() -> None:
     result = score("suspicious")
 

@@ -57,10 +57,22 @@ class RiskAssessment(BaseModel):
 class RiskEngine:
     """Score only supplied threat metadata; perform no I/O or content inspection."""
 
-    def assess(self, assessment: ThreatAssessment) -> RiskAssessment:
-        """Return a deterministic risk result from threat and indicator labels."""
+    def assess(
+        self,
+        assessment: ThreatAssessment,
+        *,
+        threat_category: str | None = None,
+    ) -> RiskAssessment:
+        """Return a deterministic risk result from threat and indicator labels.
+
+        A trusted caller may provide the category from a validated detector
+        result. When it is absent, the legacy assessment field is used so
+        unassessed inputs continue to fail closed.
+        """
         source_category = self._normalize_label(
-            getattr(assessment, "threat", None)
+            threat_category
+            if threat_category is not None
+            else getattr(assessment, "threat", None)
         ) or "not_assessed"
         base_score = THREAT_BASE_SCORES.get(source_category)
         if base_score is None:
@@ -74,7 +86,15 @@ class RiskEngine:
         score = base_score
         reasons = [f"Threat category '{source_category}' has base score {base_score}."]
 
-        indicators = getattr(assessment, "indicators", ()) or ()
+        # A validated detector category already summarizes the detector's
+        # evidence. Applying the legacy indicator additions again would count
+        # that same evidence twice. Direct legacy assessments keep their
+        # additive indicator scoring behavior.
+        indicators = (
+            ()
+            if threat_category is not None
+            else getattr(assessment, "indicators", ()) or ()
+        )
         recognized_indicators = {
             normalized
             for indicator in indicators

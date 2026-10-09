@@ -36,7 +36,7 @@ def test_security_status_is_truthful() -> None:
     assert response.json() == {
         "security_router": "active",
         "input_gateway": "active",
-        "threat_detector": "not_implemented",
+        "threat_detector": "active",
         "risk_engine": "not_implemented",
         "policy_engine": "not_implemented",
         "data_classifier": "not_implemented",
@@ -52,13 +52,14 @@ def test_analyze_normalizes_untrusted_input_and_is_explicitly_unimplemented() ->
     result = response.json()
     assert result["input_id"]
     assert result["analysis_status"] == "not_implemented"
-    assert result["risk_score"] == 100
-    assert result["severity"] == "CRITICAL"
+    assert result["risk_score"] == 0
+    assert result["severity"] == "LOW"
     assert result["threat"] == "not_assessed"
-    assert result["action"] == "BLOCK"
+    assert result["action"] == "ALLOW"
     assert result["indicators"] == []
+    assert result["detection_result"]["category"] == "benign"
     assert result["reason"] == (
-        "Threat assessment is unavailable; fail-closed security decision."
+        "Threat category 'benign' has base score 0."
     )
 
 

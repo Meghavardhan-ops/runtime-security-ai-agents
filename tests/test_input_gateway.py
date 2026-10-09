@@ -30,7 +30,10 @@ def payload(
     }
 
 
-@pytest.mark.parametrize("source_type", ["text", "file", "email", "web", "api", "database"])
+@pytest.mark.parametrize(
+    "source_type",
+    ["text", "file", "email", "web", "api", "database", "user_input"],
+)
 def test_accepts_each_allowed_source_type(source_type: str) -> None:
     response = client.post(INPUTS_URL, json=payload(source_type=source_type))
 

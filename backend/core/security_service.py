@@ -5,7 +5,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from backend.detector.threat_detector import ThreatDetector
+from backend.detector.classifiers import classify_result
+from backend.detector.models import DetectionResult
+from backend.detector.threat_detector import ThreatAssessment, ThreatDetector
 from backend.gateway.input_gateway import InputGateway, SecurityInput, SecurityInputRequest
 from backend.gateway.tool_gateway import ToolGateway
 from backend.monitor.audit_logger import AuditLogger
@@ -16,7 +18,11 @@ from backend.policy.risk_engine import RiskEngine
 
 
 class SecurityAnalysis(BaseModel):
-    """Analysis response that supports both unknown and scored risk states."""
+    """Risk analysis response including detector and risk-engine results.
+
+    The optional detection result preserves direct construction of this legacy
+    response model; SecurityService.analyze always returns a populated result.
+    """
 
     input_id: UUID
     analysis_status: Literal["not_implemented"] = "not_implemented"
@@ -26,6 +32,7 @@ class SecurityAnalysis(BaseModel):
     action: Literal["ALLOW", "REVIEW", "BLOCK"] = "REVIEW"
     indicators: list[str] = Field(default_factory=list)
     reason: str = "Threat detection is not implemented; risk remains unassessed."
+    detection_result: DetectionResult | None = None
 
 
 class SecurityService:
@@ -54,28 +61,79 @@ class SecurityService:
     def analyze(self, request: SecurityInputRequest) -> SecurityAnalysis:
         """Re-run ingress normalization before passing input to safe stubs."""
         normalized_input = self.input_gateway.normalize(request)
-        threat_assessment = self.threat_detector.analyze(normalized_input)
-        risk_assessment = self.risk_engine.assess(threat_assessment)
+        try:
+            raw_assessment = self.threat_detector.analyze(normalized_input)
+            if not isinstance(raw_assessment, ThreatAssessment):
+                raise TypeError("detector returned an invalid assessment")
+            threat_assessment = ThreatAssessment.model_validate(
+                raw_assessment.model_dump()
+            )
+        except Exception:
+            # Malformed or unvalidated detector output must never authorize a request.
+            threat_assessment = ThreatAssessment()
+
+        detection_result = self._validated_detection_result(
+            threat_assessment.detection_result
+        )
+        if (
+            detection_result is not None
+            and threat_assessment.indicators != detection_result.indicators
+        ):
+            detection_result = None
+        detected_category = (
+            detection_result.category if detection_result is not None else None
+        )
+        risk_assessment = self.risk_engine.assess(
+            threat_assessment,
+            threat_category=detected_category,
+        )
         response = SecurityAnalysis(
             input_id=normalized_input.id,
             risk_score=risk_assessment.risk_score,
             severity=risk_assessment.severity,
             action=risk_assessment.recommended_action,
             threat=threat_assessment.threat,
-            indicators=threat_assessment.indicators,
+            indicators=(
+                detection_result.indicators if detection_result is not None else []
+            ),
             reason=" ".join(risk_assessment.reasons),
+            detection_result=detection_result,
         )
         self.audit_logger.record(
-            "analyze", response.action, None, request_id=normalized_input.id
+            "analyze",
+            response.action,
+            None,
+            request_id=normalized_input.id,
+            source_type=normalized_input.source_type,
+            threat_category=response.threat,
+            severity=response.severity,
+            risk_score=response.risk_score,
         )
         return response
+
+    @staticmethod
+    def _validated_detection_result(
+        result: DetectionResult | None,
+    ) -> DetectionResult | None:
+        """Accept only typed detector output consistent with its evidence labels."""
+        if not isinstance(result, DetectionResult):
+            return None
+        try:
+            candidate = DetectionResult.model_validate(result.model_dump())
+            canonical = classify_result(set(candidate.indicators))
+        except Exception:
+            return None
+        return candidate if candidate == canonical else None
 
     def check_tool(
         self, tool_name: str, arguments: dict[str, Any]
     ) -> SecurityDecision:
         """Check a tool request without invoking it."""
         decision = self.tool_gateway.check(tool_name, arguments)
-        self.audit_logger.record("check_tool", decision.action, decision.allowed)
+        self.audit_logger.record(
+            "check_tool", decision.action, decision.allowed,
+            policy_decision=decision.action, tool_decision=decision.action,
+        )
         return decision
 
     def check_data(self, data_type: str, destination: str) -> SecurityDecision:
@@ -89,7 +147,10 @@ class SecurityService:
         else:
             classification = self.data_classifier.classify(data_type, destination)
         decision = self.policy_engine.check_data(classification)
-        self.audit_logger.record("check_data", decision.action, decision.allowed)
+        self.audit_logger.record(
+            "check_data", decision.action, decision.allowed,
+            policy_decision=decision.action,
+        )
         return decision
 
     def check_data_with_content(
@@ -120,7 +181,10 @@ class SecurityService:
             effective_data_type, destination
         )
         decision = self.policy_engine.check_data(classification)
-        self.audit_logger.record("check_data", decision.action, decision.allowed)
+        self.audit_logger.record(
+            "check_data", decision.action, decision.allowed,
+            policy_decision=decision.action,
+        )
         return dlp_result, decision
 
     @staticmethod
@@ -151,5 +215,8 @@ class SecurityService:
         """Check an action request without contacting or modifying its target."""
         del target
         decision = self.policy_engine.check_action(action)
-        self.audit_logger.record("check_action", decision.action, decision.allowed)
+        self.audit_logger.record(
+            "check_action", decision.action, decision.allowed,
+            policy_decision=decision.action,
+        )
         return decision
