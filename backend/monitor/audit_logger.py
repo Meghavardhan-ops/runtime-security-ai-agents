@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 AuditEvent = Literal[
     "analyze", "check_tool", "check_data", "check_action",
-    "check_agent_tool", "check_agent_data",
+    "check_agent_tool", "check_agent_data", "llm_chat",
 ]
 SafeAgentId = Literal["agent-research", "agent-analyst", "unknown_agent"]
 PermissionKind = Literal["tool", "data"]

@@ -34,6 +34,7 @@ The design treats agent input as potentially untrusted and places security contr
 | Tool authorization gateway | Implemented, check-only; no execution |
 | Synthetic agent permission registry | Demonstration only; no identity authentication |
 | Runtime monitoring and dashboard | Implemented, bounded in-process data |
+| Local Ollama chat | Security-gated local inference with DLP output screening; pattern-based controls have limits |
 
 ## 5. Architecture
 
@@ -101,9 +102,11 @@ Image analysis also requires the external Tesseract OCR engine; installing the P
 
 ## 9. Configuration
 
-`.env.example` contains safe placeholders. Copy it to `.env` for local configuration, replace placeholders locally, and never commit `.env`. The current application reads `DATABASE_URL`; it defaults to `sqlite:///./agentshield.db`. Input limits are configurable with `INPUT_MAX_CONTENT_BYTES`, `INPUT_MAX_SOURCE_NAME_LENGTH`, and `INPUT_MAX_METADATA_BYTES`. `LLM_API_KEY`, `SECRET_KEY`, and `DEBUG` are placeholders for future modules and are not consumed by the current implementation. The current settings also accept optional `SERVICE_NAME` and `LOG_LEVEL` environment variables; their defaults are `AgentShield` and `INFO`.
+`.env.example` contains safe placeholders. Copy it to `.env` for local configuration, replace placeholders locally, and never commit `.env`. The current application reads `DATABASE_URL`; it defaults to `sqlite:///./agentshield.db`. Input limits are configurable with `INPUT_MAX_CONTENT_BYTES`, `INPUT_MAX_SOURCE_NAME_LENGTH`, and `INPUT_MAX_METADATA_BYTES`. `SECRET_KEY` and `DEBUG` are legacy placeholders and are not consumed by the current implementation. `LLM_API_KEY` is also a legacy placeholder; the local Ollama integration does not use an API key. The current settings also accept optional `SERVICE_NAME` and `LOG_LEVEL` environment variables; their defaults are `AgentShield` and `INFO`.
 
 Image uploads are bounded by `IMAGE_MAX_UPLOAD_BYTES` (default 5 MiB) and `IMAGE_MAX_PIXELS` (default 12 million pixels). `TESSERACT_CMD` optionally selects the Tesseract executable. The image endpoint decodes PNG/JPEG data with Pillow, performs local OCR, and sends extracted text through the existing untrusted-file analysis path. Empty OCR results return a fail-closed `REVIEW`. OCR does not establish that an image is safe; image instructions remain untrusted, and links or QR destinations are never opened.
+
+The local LLM integration uses `OLLAMA_BASE_URL` (default `http://localhost:11434`), `OLLAMA_MODEL` (default `qwen2.5:3b`), and `OLLAMA_TIMEOUT_SECONDS` (default 30 seconds). `LLM_MAX_MESSAGE_CHARS` limits user messages (default 16,384 characters; maximum configurable value 32,768). Install and start Ollama separately, then manually install the selected model, for example `ollama pull qwen2.5:3b`. AgentShield never downloads models during startup or requests. No API key is needed for the local default configuration.
 
 ## 10. Running the Application
 
@@ -119,6 +122,16 @@ The Input Gateway accepts normalized input at `POST http://127.0.0.1:8000/api/v1
 
 Image uploads use `POST /api/v1/security/analyze-image` with a multipart `file` field. Only decoded PNG and JPEG images are accepted. The endpoint does not retain uploaded files or return OCR text.
 
+The LLM API is under `/api/llm`. `GET /api/llm/health` reports whether Ollama is reachable and whether the configured model is installed; it does not install or download a model. `POST /api/llm/chat` accepts one JSON `message` field. Example PowerShell request:
+
+```powershell
+$body = @{ message = "Summarize the public project notes." } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/llm/chat `
+  -ContentType "application/json" -Body $body
+```
+
+The chat route submits the message to the existing Input Gateway and security analysis pipeline first. Only an assessed final `ALLOW` reaches Ollama. Generated text is scanned by the existing local DLP patterns and is withheld on a detected secret or an inconclusive scan. This is not a complete privacy or factual-safety guarantee: pattern-based DLP can miss sensitive content, model output is untrusted, and AgentShield never executes tools or actions suggested by a model.
+
 ## 11. Running Tests
 
 ```powershell
@@ -131,6 +144,12 @@ For the focused image tests:
 .\.venv\Scripts\python.exe -m pytest tests/security/test_image_security.py tests/security/test_image_gateway.py -q
 ```
 
+For the mocked Ollama integration tests (no local model is required):
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/security/test_llm_api.py -q
+```
+
 The image-security tests mock OCR and do not require Tesseract to be installed. To test real OCR manually, install the external Tesseract executable and configure `TESSERACT_CMD` if it is not found at the Windows default path or on `PATH`.
 
 GitHub Actions runs the same test suite on pushes and pull requests.
@@ -141,7 +160,7 @@ The security model follows least privilege, deny by default, defense in depth, e
 
 ## 13. Threat Model
 
-The threat model covers untrusted text and metadata supplied through the API, including prompt injection, unauthorized tool requests, credential exposure, and data exfiltration. See [docs/threat-model.md](docs/threat-model.md). The project does not connect to customer data sources or execute agent tools.
+The threat model covers untrusted text and metadata supplied through the API, including prompt injection, unauthorized tool requests, credential exposure, and data exfiltration. See [docs/threat-model.md](docs/threat-model.md). The project does not connect to customer data sources or execute agent tools. Local model input is gated by the deterministic security pipeline; this does not authenticate callers or make model output inherently safe.
 
 ## 14. Attack Scenarios
 
