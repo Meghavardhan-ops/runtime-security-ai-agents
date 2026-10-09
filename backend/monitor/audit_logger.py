@@ -11,8 +11,16 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-AuditEvent = Literal["analyze", "check_tool", "check_data", "check_action"]
-SafeCategory = Literal["not_assessed", "unknown"]
+AuditEvent = Literal[
+    "analyze", "check_tool", "check_data", "check_action",
+    "check_agent_tool", "check_agent_data",
+]
+SafeAgentId = Literal["agent-research", "agent-analyst", "unknown_agent"]
+PermissionKind = Literal["tool", "data"]
+SafeCategory = Literal[
+    "benign", "prompt_injection", "data_exfiltration", "credential_theft",
+    "tool_abuse", "suspicious", "not_assessed", "unknown",
+]
 SafeSeverity = Literal["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
 DecisionAction = Literal["ALLOW", "BLOCK", "REVIEW"]
 EventStatus = Literal["allowed", "review", "blocked"]
@@ -32,6 +40,9 @@ class MonitoringEvent(BaseModel):
     policy_decision: DecisionAction | None
     tool_decision: DecisionAction | None
     status: EventStatus
+    agent_id: SafeAgentId | None = None
+    permission_kind: PermissionKind | None = None
+    permission_subject: str | None = None
 
 
 class AuditLogger:
@@ -56,6 +67,9 @@ class AuditLogger:
         risk_score: int | None = None,
         policy_decision: str | None = None,
         tool_decision: str | None = None,
+        agent_id: str | None = None,
+        permission_kind: str | None = None,
+        permission_subject: str | None = None,
     ) -> None:
         """Store only fixed vocabularies and validated numeric/identifier fields."""
         source_types = {"file", "email", "web", "api", "database", "text"}
@@ -64,8 +78,14 @@ class AuditLogger:
             if isinstance(source_type, str) and source_type in source_types
             else None
         )
+        safe_categories = {
+            "benign", "prompt_injection", "data_exfiltration", "credential_theft",
+            "tool_abuse", "suspicious", "not_assessed", "unknown",
+        }
         safe_category: SafeCategory = (
-            threat_category if threat_category == "not_assessed" else "unknown"
+            threat_category
+            if isinstance(threat_category, str) and threat_category in safe_categories
+            else "unknown"
         )
         safe_severity: SafeSeverity = (
             severity
@@ -98,12 +118,34 @@ class AuditLogger:
             else None
         )
         safe_allowed = allowed if isinstance(allowed, bool) else None
-        status: EventStatus = (
-            "allowed"
-            if safe_allowed is True
-            else "blocked"
-            if safe_allowed is False
-            else "review"
+        status: EventStatus = {
+            "ALLOW": "allowed", "REVIEW": "review", "BLOCK": "blocked"
+        }[safe_action]
+        safe_agent: SafeAgentId | None = (
+            agent_id
+            if isinstance(agent_id, str)
+            and agent_id in {"agent-research", "agent-analyst"}
+            else "unknown_agent"
+            if agent_id is not None
+            else None
+        )
+        safe_kind: PermissionKind | None = (
+            permission_kind
+            if isinstance(permission_kind, str)
+            and permission_kind in {"tool", "data"}
+            else None
+        )
+        safe_subjects = {
+            "search", "calculator", "shell", "execute_command", "file_read",
+            "public", "internal", "confidential", "restricted", "unknown",
+        }
+        safe_subject = (
+            permission_subject.strip().casefold()
+            if isinstance(permission_subject, str)
+            and permission_subject.strip().casefold() in safe_subjects
+            else "unlisted"
+            if permission_subject is not None
+            else None
         )
         record = MonitoringEvent(
             request_id=request_id,
@@ -117,6 +159,9 @@ class AuditLogger:
             policy_decision=safe_policy,
             tool_decision=safe_tool,
             status=status,
+            agent_id=safe_agent,
+            permission_kind=safe_kind,
+            permission_subject=safe_subject,
         )
         with self._lock:
             self._events.append(record)

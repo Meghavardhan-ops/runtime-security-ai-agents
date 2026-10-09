@@ -19,6 +19,7 @@
         <nav aria-label="Dashboard sections">
           <a class="nav-item active" href="#overview"><span aria-hidden="true">◫</span> Overview</a>
           <a class="nav-item" href="#events"><span aria-hidden="true">≋</span> Security events</a>
+          <a class="nav-item" href="#agent-permissions"><span aria-hidden="true">♙</span> Agent permissions</a>
           <a class="nav-item" href="#test-security"><span aria-hidden="true">⌁</span> Test security</a>
         </nav>
         <div class="sidebar-foot">
@@ -114,6 +115,36 @@
               <thead><tr><th>Decision</th><th>Event / source</th><th>Threat category</th><th>Severity</th><th>Risk score</th><th>Recorded</th></tr></thead>
               <tbody id="event-rows"><tr><td class="table-empty" colspan="6">Loading events…</td></tr></tbody>
             </table>
+          </div>
+        </section>
+
+        <section class="panel agent-permissions-panel" id="agent-permissions" aria-labelledby="agent-permissions-heading">
+          <div class="panel-heading">
+            <div><p class="eyebrow">AUTHORIZATION / DEMONSTRATION REGISTRY</p><h2 id="agent-permissions-heading">Agent Permissions</h2></div>
+            <span class="panel-symbol" aria-hidden="true">♙</span>
+          </div>
+          <p id="agent-identity-note" class="agent-identity-note">Loading agent permission data…</p>
+          <div id="agent-permission-error" class="notice error-notice" role="alert" hidden></div>
+          <div id="agent-cards" class="agent-cards" aria-live="polite">
+            <p class="loading-copy">Loading registered agents…</p>
+          </div>
+          <div class="agent-lists-grid">
+            <div>
+              <h3>Recent decisions</h3>
+              <div class="table-wrap">
+                <table><thead><tr><th>Agent</th><th>Request</th><th>Decision</th><th>Recorded</th></tr></thead>
+                  <tbody id="agent-decision-rows"><tr><td class="table-empty" colspan="4">Loading decisions…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <h3>Denied requests</h3>
+              <div class="table-wrap">
+                <table><thead><tr><th>Agent</th><th>Request</th><th>Decision</th><th>Recorded</th></tr></thead>
+                  <tbody id="agent-denial-rows"><tr><td class="table-empty" colspan="4">Loading denials…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 

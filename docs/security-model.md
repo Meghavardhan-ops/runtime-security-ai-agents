@@ -1,6 +1,6 @@
 # AgentShield Security Model
 
-The principles below guide future security modules. They describe intended design behavior; the current backend foundation does not enforce them beyond keeping configuration separate from code and ignoring local environment files in Git.
+The principles below describe the current deterministic check-only controls and their limits. Agent permission profiles are synthetic examples, DataClassifier carries unverified labels, audit events are in-process, and no tool or external data transfer is executed.
 
 ## Least privilege
 
@@ -20,15 +20,15 @@ The model can propose actions but cannot grant itself permission. A deterministi
 
 ## Tool isolation
 
-Keep tools behind a gateway that validates identity, scope, arguments, and impact. Do not give an agent direct database, shell, filesystem, or network access by default.
+Keep tools behind a gateway that validates scope and bounded inert arguments. The current Tool Gateway only checks authorization; it does not execute tools. Synthetic agent IDs are caller-supplied and are not authenticated identities. Do not give an agent direct database, shell, filesystem, or network access by default.
 
 ## Data classification
 
-Label data by sensitivity and purpose. Minimize information sent to the model and prevent restricted data from flowing to unapproved tools or recipients.
+The current DLP scanner detects a bounded set of sensitive patterns and raises effective labels before policy checks. No-pattern results do not prove content is public. DataClassifier carries caller labels but does not independently inspect or classify content.
 
 ## Auditability
 
-Record the relevant source, policy version, decision, tool action, and outcome with timestamps and access controls. Define retention and redaction before storing sensitive evidence.
+Record allow-listed decision metadata and timestamps in a bounded in-process buffer. Events are not durable or shared across workers; define retention and access controls before adding persistent evidence storage.
 
 ## Secure logging
 
