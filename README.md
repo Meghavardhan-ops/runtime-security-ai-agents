@@ -58,6 +58,7 @@ The core security principle is: **“The AI model is not treated as a trusted se
 
 - Python 3.12+
 - FastAPI and Pydantic
+- Pillow, pytesseract, and python-multipart for bounded image upload and OCR
 - SQLAlchemy with SQLite
 - PyYAML and python-dotenv
 - pytest and HTTPX for API tests
@@ -96,9 +97,13 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
+Image analysis also requires the external Tesseract OCR engine; installing the Python package `pytesseract` alone is not sufficient. Install Tesseract locally. On Windows, AgentShield detects `C:\Program Files\Tesseract-OCR\tesseract.exe` when present. Set `TESSERACT_CMD` to the executable path in other locations or environments.
+
 ## 9. Configuration
 
 `.env.example` contains safe placeholders. Copy it to `.env` for local configuration, replace placeholders locally, and never commit `.env`. The current application reads `DATABASE_URL`; it defaults to `sqlite:///./agentshield.db`. Input limits are configurable with `INPUT_MAX_CONTENT_BYTES`, `INPUT_MAX_SOURCE_NAME_LENGTH`, and `INPUT_MAX_METADATA_BYTES`. `LLM_API_KEY`, `SECRET_KEY`, and `DEBUG` are placeholders for future modules and are not consumed by the current implementation. The current settings also accept optional `SERVICE_NAME` and `LOG_LEVEL` environment variables; their defaults are `AgentShield` and `INFO`.
+
+Image uploads are bounded by `IMAGE_MAX_UPLOAD_BYTES` (default 5 MiB) and `IMAGE_MAX_PIXELS` (default 12 million pixels). `TESSERACT_CMD` optionally selects the Tesseract executable. The image endpoint decodes PNG/JPEG data with Pillow, performs local OCR, and sends extracted text through the existing untrusted-file analysis path. Empty OCR results return a fail-closed `REVIEW`. OCR does not establish that an image is safe; image instructions remain untrusted, and links or QR destinations are never opened.
 
 ## 10. Running the Application
 
@@ -112,11 +117,21 @@ The service listens at `http://127.0.0.1:8000`. The current endpoint is `http://
 
 The Input Gateway accepts normalized input at `POST http://127.0.0.1:8000/api/v1/inputs`. The check-only Security API is under `/api/v1/security`; see [docs/security-router.md](docs/security-router.md) for its request contracts and limitations, including the demonstration-only agent IDs.
 
+Image uploads use `POST /api/v1/security/analyze-image` with a multipart `file` field. Only decoded PNG and JPEG images are accepted. The endpoint does not retain uploaded files or return OCR text.
+
 ## 11. Running Tests
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -v
 ```
+
+For the focused image tests:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/security/test_image_security.py tests/security/test_image_gateway.py -q
+```
+
+The image-security tests mock OCR and do not require Tesseract to be installed. To test real OCR manually, install the external Tesseract executable and configure `TESSERACT_CMD` if it is not found at the Windows default path or on `PATH`.
 
 GitHub Actions runs the same test suite on pushes and pull requests.
 

@@ -136,11 +136,14 @@ td { padding: 11px 13px; border-top: 1px solid rgba(151,177,207,.08); color: #ae
 .test-intro h2 { font-size: 20px; }
 .test-intro p:last-child { max-width: 300px; margin: 9px 0 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
 .test-form { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.analyze-input-group { display: grid; gap: 8px; }
+.analyze-input-group[hidden] { display: none; }
 .test-form label { margin-top: 2px; color: #aebdcb; font-size: 10px; }
-.test-form select, .test-form textarea { width: 100%; border: 1px solid rgba(151,177,207,.17); border-radius: 6px; outline: none; color: var(--text); background: rgba(5,15,26,.55); }
+.test-form select, .test-form textarea, .test-form input[type="file"] { width: 100%; border: 1px solid rgba(151,177,207,.17); border-radius: 6px; outline: none; color: var(--text); background: rgba(5,15,26,.55); }
 .test-form select { height: 34px; padding: 0 10px; }
 .test-form textarea { min-height: 72px; resize: vertical; padding: 9px 10px; line-height: 1.5; }
-.test-form select:focus, .test-form textarea:focus { border-color: rgba(80,213,208,.65); box-shadow: 0 0 0 2px rgba(80,213,208,.08); }
+.test-form input[type="file"] { min-height: 38px; padding: 6px; font-size: 11px; }
+.test-form select:focus, .test-form textarea:focus, .test-form input[type="file"]:focus { border-color: rgba(80,213,208,.65); box-shadow: 0 0 0 2px rgba(80,213,208,.08); }
 .test-form textarea::placeholder { color: #60748b; }
 .form-bottom { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 2px; }
 .privacy-note { color: var(--faint); font-size: 9px; }

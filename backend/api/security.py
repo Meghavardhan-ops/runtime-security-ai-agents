@@ -1,10 +1,12 @@
 """Versioned, check-only Security API routes."""
 
 from typing import Any, Annotated
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from backend.core.config import settings
 from backend.core.security_service import SecurityAnalysis, SecurityService
 from backend.gateway.input_gateway import (
     InputTooLargeError,
@@ -16,6 +18,14 @@ from backend.policy.policy_engine import SecurityDecision
 from backend.monitor.audit_logger import MonitoringEvent
 from backend.policy.dlp import DLPResult
 from backend.policy.agent_permissions import AgentPermissionProfile
+from backend.gateway.image_gateway import (
+    ImageGateway,
+    ImageOCRError,
+    ImageUploadTooLargeError,
+    InvalidImageError,
+    OCREngineUnavailableError,
+    UnsupportedImageFormatError,
+)
 
 router = APIRouter(prefix="/api/v1/security", tags=["Security"])
 security_service = SecurityService()
@@ -151,6 +161,106 @@ def analyze_input(
         raise HTTPException(status_code=413, detail=str(error)) from error
     except InputValidationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+async def _read_bounded_image_upload(upload: UploadFile) -> bytes:
+    """Read at most the configured image limit plus one detection byte."""
+    max_bytes = settings.image_max_upload_bytes
+    if upload.size is not None and upload.size > max_bytes:
+        raise ImageUploadTooLargeError from None
+
+    data = bytearray()
+    while True:
+        remaining_with_probe = max_bytes - len(data) + 1
+        chunk = await upload.read(min(64 * 1024, remaining_with_probe))
+        if not chunk:
+            break
+        data.extend(chunk)
+        if len(data) > max_bytes:
+            raise ImageUploadTooLargeError from None
+    return bytes(data)
+
+
+def _unassessed_image_response() -> SecurityAnalysis:
+    """Return and monitor a fail-closed REVIEW when OCR finds no usable text."""
+    request_id = uuid4()
+    security_service.audit_logger.record(
+        "analyze",
+        "REVIEW",
+        False,
+        request_id=request_id,
+        source_type="file",
+        threat_category="not_assessed",
+        severity="UNKNOWN",
+        risk_score=None,
+    )
+    return SecurityAnalysis(
+        input_id=request_id,
+        analysis_status="fail_closed",
+        risk_score=None,
+        severity="UNKNOWN",
+        threat="not_assessed",
+        action="REVIEW",
+        reason=(
+            "OCR found no usable text; the image remains unassessed and requires review."
+        ),
+    )
+
+
+@router.post("/analyze-image", response_model=SecurityAnalysis)
+async def analyze_image(file: UploadFile = File(...)) -> SecurityAnalysis:
+    """OCR a bounded PNG/JPEG upload and analyze extracted text as untrusted input."""
+    try:
+        image_bytes = await _read_bounded_image_upload(file)
+        extracted_text = ImageGateway().extract_text(image_bytes)
+    except ImageUploadTooLargeError:
+        raise HTTPException(
+            status_code=413,
+            detail="Image exceeds the configured upload or pixel limit.",
+        ) from None
+    except UnsupportedImageFormatError:
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported image format. Upload a PNG or JPEG image.",
+        ) from None
+    except InvalidImageError:
+        raise HTTPException(
+            status_code=422,
+            detail="The upload is not a valid, decodable PNG or JPEG image.",
+        ) from None
+    except OCREngineUnavailableError:
+        raise HTTPException(
+            status_code=503,
+            detail="OCR is unavailable. Install Tesseract or configure TESSERACT_CMD.",
+        ) from None
+    except ImageOCRError:
+        raise HTTPException(
+            status_code=502,
+            detail="OCR failed; the image was not analyzed.",
+        ) from None
+    finally:
+        await file.close()
+
+    if not extracted_text:
+        return _unassessed_image_response()
+
+    try:
+        return security_service.analyze(
+            SecurityInputRequest(
+                source_type="file",
+                source_name="uploaded-image",
+                content=extracted_text,
+                metadata={},
+            )
+        )
+    except InputTooLargeError:
+        raise HTTPException(
+            status_code=413,
+            detail="Extracted image text exceeds the analysis limit.",
+        ) from None
+    except InputValidationError:
+        # This includes OCR output that normalizes to empty or invalid text.
+        return _unassessed_image_response()
 
 
 @router.post("/check-tool", response_model=ToolCheckResponse)

@@ -158,16 +158,24 @@
             <label for="source-type">Input source</label>
             <select id="source-type" name="source_type">
               <option value="text">Text</option>
+              <option value="image">Image</option>
               <option value="api">API</option>
               <option value="file">File</option>
               <option value="email">Email</option>
               <option value="web">Web</option>
               <option value="database">Database</option>
             </select>
-            <label for="test-content">Harmless test request</label>
-            <textarea id="test-content" name="content" rows="3" maxlength="12000" required placeholder="For example: Summarize the public project notes."></textarea>
+            <div class="analyze-input-group" id="text-input-fields">
+              <label for="test-content">Harmless test request</label>
+              <textarea id="test-content" name="content" rows="3" maxlength="12000" required placeholder="For example: Summarize the public project notes."></textarea>
+            </div>
+            <div class="analyze-input-group" id="image-upload-fields" hidden>
+              <label for="image-file">Image to analyze</label>
+              <input id="image-file" name="file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" required>
+              <small class="privacy-note">OCR text is analyzed as untrusted input. OCR cannot prove an image is safe; links and QR destinations are never opened.</small>
+            </div>
             <div class="form-bottom">
-              <span class="privacy-note">Submitted text is not echoed into the results or event list.</span>
+              <span class="privacy-note" id="analysis-privacy-note">Submitted text is not echoed into the results or event list.</span>
               <button class="primary-button" id="analyze-button" type="submit"><span>Analyze request</span><span aria-hidden="true">→</span></button>
             </div>
           </form>
