@@ -23,6 +23,10 @@ class Settings(BaseModel):
     image_max_upload_bytes: int = Field(default=5_242_880, gt=0)
     image_max_pixels: int = Field(default=12_000_000, gt=0)
     tesseract_cmd: str = ""
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = Field(default="qwen2.5:3b", min_length=1, max_length=128)
+    ollama_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    llm_max_message_chars: int = Field(default=16_384, ge=1, le=32_768)
 
 
 settings = Settings(
@@ -35,4 +39,8 @@ settings = Settings(
     image_max_upload_bytes=os.getenv("IMAGE_MAX_UPLOAD_BYTES", "5242880"),
     image_max_pixels=os.getenv("IMAGE_MAX_PIXELS", "12000000"),
     tesseract_cmd=os.getenv("TESSERACT_CMD", ""),
+    ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+    ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
+    ollama_timeout_seconds=os.getenv("OLLAMA_TIMEOUT_SECONDS", "30"),
+    llm_max_message_chars=os.getenv("LLM_MAX_MESSAGE_CHARS", "16384"),
 )
