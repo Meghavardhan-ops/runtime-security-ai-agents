@@ -118,6 +118,40 @@ SHELL_EXECUTION_REQUEST = re.compile(
     r"|\b(?:shell|terminal|command line)\s+tool\b"
 )
 
+# This rule is intentionally narrow: it catches request/imperative syntax for
+# constructing an explicitly named explosive target, plus explicit recipe or
+# instruction phrases. General topic mentions are not sufficient evidence.
+_HARMFUL_REQUEST_PREFIX = (
+    r"(?:\bhow\s+(?:do|can|would|could)\s+(?:(?:i|we|you|someone)\s+)|"
+    r"\bhow\s+to\s+|\b(?:can|could|would|will)\s+you\s+|"
+    r"\b(?:tell|show|teach|give)\s+(?:me|us)\s+"
+    r"(?:how\s+(?:to|do\s+i)\s+)?|"
+    r"(?:^|[.!]\s+)(?:please\s+)?)"
+)
+_CONSTRUCTION_VERB = (
+    r"(?:make|making|build|building|construct|constructing|assemble|assembling|"
+    r"manufacture|manufacturing|create|creating|synthesize|synthesizing|"
+    r"prepare|preparing|mix|mixing|craft|crafting|produce|producing|"
+    r"weaponize|weaponizing)"
+)
+_EXPLOSIVE_TARGET = (
+    r"(?:pipe\s+)?bombs?|(?:improvised\s+)?explosive(?:\s+devices?)?|"
+    r"ieds?|incendiary\s+devices?|molotov\s+cocktails?"
+)
+_CONSTRUCTION_MODIFIER = (
+    r"(?:me|myself|a|an|the|some|homemade|improvised|pipe|simple|basic|"
+    r"crude|small|large|powerful)"
+)
+HARMFUL_INSTRUCTION_REQUEST = re.compile(
+    rf"{_HARMFUL_REQUEST_PREFIX}\b{_CONSTRUCTION_VERB}\s+"
+    rf"(?:(?:{_CONSTRUCTION_MODIFIER})\s+){{0,4}}(?:{_EXPLOSIVE_TARGET})\b"
+    rf"|\b(?:{_EXPLOSIVE_TARGET})\s+(?:making|building|construction)\s+"
+    rf"(?:instructions?|steps?|recipes?|guides?|directions?)\b"
+    rf"|\b(?:instructions?|steps?|recipes?|guides?|directions?)\s+"
+    rf"(?:for|to|on)\s+{_CONSTRUCTION_VERB}\s+"
+    rf"(?:(?:{_CONSTRUCTION_MODIFIER})\s+){{0,4}}(?:{_EXPLOSIVE_TARGET})\b"
+)
+
 INSTRUCTION_CONTEXT = re.compile(
     r"\b(?:important\s+ai\s+instruction|ai\s+instruction|"
     r"system\s+(?:message|instruction|directive)|developer\s+"
@@ -171,6 +205,9 @@ def detect_indicators(normalized_text: str, source_type: str | None = None) -> s
     external_api = bool(EXTERNAL_API_REQUEST.search(normalized_text))
     restricted_access = bool(RESTRICTED_RESOURCE.search(normalized_text))
     shell_request = bool(SHELL_EXECUTION_REQUEST.search(normalized_text))
+    harmful_instruction = bool(HARMFUL_INSTRUCTION_REQUEST.search(normalized_text))
+    if harmful_instruction:
+        indicators.add("harmful_instruction_request")
     if tool_invocation or shell_request:
         indicators.add("tool_invocation")
     if external_api:

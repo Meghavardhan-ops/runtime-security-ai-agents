@@ -15,7 +15,7 @@ from backend.policy.agent_permissions import AgentPermissionRegistry
 from backend.policy.data_classifier import DataClassifier
 from backend.policy.dlp import DLPEngine, DLPResult
 from backend.policy.policy_engine import PolicyEngine, SecurityDecision
-from backend.policy.risk_engine import RiskEngine
+from backend.policy.risk_engine import RiskAssessment, RiskEngine
 
 
 class SecurityAnalysis(BaseModel):
@@ -67,9 +67,14 @@ class SecurityService:
     def analyze(self, request: SecurityInputRequest) -> SecurityAnalysis:
         """Re-run ingress normalization before passing input to safe stubs."""
         normalized_input = self.input_gateway.normalize(request)
-        detector_valid = False
+        assessment_is_valid = False
         detection_result: DetectionResult | None = None
-        threat_assessment = ThreatAssessment()
+        threat_assessment = ThreatAssessment(
+            status="not_assessed",
+            threat="not_assessed",
+            indicators=[],
+            detection_result=None,
+        )
         try:
             raw_assessment = self.threat_detector.analyze(normalized_input)
             if not isinstance(raw_assessment, ThreatAssessment):
@@ -91,37 +96,58 @@ class SecurityService:
                 raise ValueError("detector assessment contradicts its result")
             threat_assessment = candidate_assessment
             detection_result = candidate_result
-            detector_valid = True
+            assessment_is_valid = True
         except Exception:
-            # Malformed or unvalidated detector output must never authorize a request.
-            threat_assessment = ThreatAssessment()
-
+            # Malformed, contradictory, or unavailable detector output must
+            # never authorize a request or expose unvalidated indicators.
+            pass
         detected_category = (
             detection_result.category if detection_result is not None else None
         )
-        risk_assessment = self.risk_engine.assess(
-            threat_assessment,
-            threat_category=detected_category,
-            detection_result=detection_result,
+        try:
+            candidate_risk = self.risk_engine.assess(
+                threat_assessment,
+                threat_category=detected_category,
+                detection_result=detection_result,
+            )
+        except Exception:
+            candidate_risk = None
+        validated_risk = (
+            self._validated_risk_assessment(candidate_risk, detected_category)
+            if assessment_is_valid
+            else None
         )
+        risk_is_valid = validated_risk is not None
+        if not risk_is_valid:
+            # Detector failures and unusable/unscored risk results cannot be
+            # converted into ALLOW by a permissive legacy/mocked component.
+            risk_assessment = self._unassessed_risk_assessment()
+        else:
+            risk_assessment = validated_risk
         policy_decision = self.policy_engine.evaluate_risk(risk_assessment)
         final_action = self._strictest_action(
             risk_assessment.recommended_action, policy_decision.action
         )
-        detector_gate_applied = False
-        if not detector_valid:
+        if not assessment_is_valid or not risk_is_valid:
+            # Missing or malformed assessments are hard BLOCKs regardless of
+            # a permissive policy implementation.
             final_action = "BLOCK"
-            detector_gate_applied = final_action != risk_assessment.recommended_action
         elif final_action == "ALLOW" and detected_category != "benign":
             # A valid non-benign result cannot pass a permissive downstream decision.
             final_action = "REVIEW"
-            detector_gate_applied = True
-        if not detector_valid:
+        if not assessment_is_valid:
             final_reason = (
                 "Detector assessment is invalid or unavailable; "
                 "fail-closed decision."
             )
-        elif detector_gate_applied:
+        elif not risk_is_valid:
+            final_reason = "Risk assessment is invalid or unavailable; fail-closed decision."
+        elif (
+            final_action == "REVIEW"
+            and detected_category != "benign"
+            and risk_assessment.recommended_action == "ALLOW"
+            and policy_decision.action == "ALLOW"
+        ):
             final_reason = (
                 "A non-benign detector assessment cannot be allowed; "
                 "manual review is required."
@@ -142,7 +168,7 @@ class SecurityService:
             input_id=normalized_input.id,
             analysis_status=(
                 "analyzed"
-                if detector_valid and risk_assessment.status == "scored"
+                if assessment_is_valid and risk_is_valid
                 else "fail_closed"
             ),
             risk_score=risk_assessment.risk_score,
@@ -181,6 +207,21 @@ class SecurityService:
         except Exception:
             return None
         return candidate if candidate == canonical else None
+
+    @staticmethod
+    def _validated_risk_assessment(
+        result: object, expected_category: str | None
+    ) -> RiskAssessment | None:
+        """Accept only a scored risk result consistent with validated input."""
+        if not isinstance(result, RiskAssessment) or expected_category is None:
+            return None
+        try:
+            candidate = RiskAssessment.model_validate(result.model_dump())
+        except Exception:
+            return None
+        if candidate.status != "scored" or candidate.source_category != expected_category:
+            return None
+        return candidate
 
     def check_tool(
         self, tool_name: str, arguments: dict[str, Any]
@@ -411,6 +452,18 @@ class SecurityService:
             policy_decision=decision.action,
         )
         return decision
+
+    @staticmethod
+    def _unassessed_risk_assessment() -> RiskAssessment:
+        """Return a fixed, content-free BLOCK assessment for missing controls."""
+        return RiskAssessment(
+            status="fail_closed",
+            risk_score=100,
+            severity="CRITICAL",
+            recommended_action="BLOCK",
+            reasons=["Threat assessment is unavailable; fail-closed security decision."],
+            source_category="not_assessed",
+        )
 
     @staticmethod
     def _strictest_action(*actions: str) -> Literal["ALLOW", "REVIEW", "BLOCK"]:

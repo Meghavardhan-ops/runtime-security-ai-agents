@@ -22,6 +22,7 @@ INDICATOR_ORDER = (
     "tool_invocation",
     "external_api_request",
     "restricted_resource_access",
+    "harmful_instruction_request",
 )
 
 INDICATOR_WEIGHTS = {
@@ -41,6 +42,9 @@ INDICATOR_WEIGHTS = {
     "tool_invocation": 22,
     "external_api_request": 22,
     "restricted_resource_access": 35,
+    # Explicit requests to construct explosive devices are high-confidence
+    # harmful instructions and must cross the critical/block threshold.
+    "harmful_instruction_request": 80,
 }
 
 
