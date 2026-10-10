@@ -149,7 +149,7 @@ class RecordingPolicyEngine(PolicyEngine):
         return super().check_tool(tool_name)
 
 
-def test_analyze_runs_supported_pipeline_and_preserves_unassessed_state() -> None:
+def test_analyze_runs_supported_pipeline_with_detector_result() -> None:
     events: list[str] = []
     input_gateway = RecordingInputGateway(events)
     threat_detector = RecordingThreatDetector(events)
@@ -276,6 +276,222 @@ def test_security_service_keeps_missing_detection_fail_closed() -> None:
 
     assert risk_engine.threat_categories == [None]
     assert risk_engine.results[0].status == "fail_closed"
+    assert (response.risk_score, response.severity, response.action) == (
+        100,
+        "CRITICAL",
+        "BLOCK",
+    )
+
+
+def test_allow_requires_a_valid_benign_detector_result() -> None:
+    class PermissiveRiskEngine:
+        def assess(
+            self,
+            assessment: ThreatAssessment,
+            *,
+            threat_category: str | None = None,
+            detection_result: DetectionResult | None = None,
+        ) -> RiskAssessment:
+            del assessment, threat_category, detection_result
+            return RiskAssessment(
+                status="scored",
+                risk_score=0,
+                severity="LOW",
+                recommended_action="ALLOW",
+                reasons=[],
+                source_category="benign",
+            )
+
+    class PermissivePolicyEngine(PolicyEngine):
+        def evaluate_risk(self, risk_assessment: RiskAssessment) -> SecurityDecision:
+            del risk_assessment
+            return SecurityDecision(
+                allowed=True, action="ALLOW", reason="synthetic permissive fixture"
+            )
+
+    benign_claim_without_result = ThreatAssessment(
+        status="analyzed", threat="benign", indicators=[], detection_result=None
+    )
+    non_benign_result = DetectionResult(
+        category="prompt_injection",
+        severity="HIGH",
+        risk_score=35,
+        indicators=["instruction_override"],
+        recommended_action="BLOCK",
+    )
+    non_benign_assessment = ThreatAssessment(
+        status="analyzed",
+        threat="prompt_injection",
+        indicators=non_benign_result.indicators,
+        detection_result=non_benign_result,
+    )
+
+    for assessment, expected_action in (
+        (benign_claim_without_result, "BLOCK"),
+        (non_benign_assessment, "REVIEW"),
+    ):
+        service = SecurityService(
+            threat_detector=FixedThreatDetector(assessment),
+            risk_engine=PermissiveRiskEngine(),
+            policy_engine=PermissivePolicyEngine(),
+        )
+        response = service.analyze(
+            SecurityInputRequest(
+                source_type="text",
+                source_name="allow-gate-test.txt",
+                content="Inert test input.",
+            )
+        )
+        assert response.action == expected_action
+        assert response.action != "ALLOW"
+
+
+def test_contradictory_benign_detection_fails_closed() -> None:
+    detection_result = DetectionResult(
+        category="benign",
+        severity="CRITICAL",
+        risk_score=100,
+        indicators=["instruction_override"],
+        recommended_action="BLOCK",
+    )
+    assessment = ThreatAssessment(
+        status="analyzed",
+        threat="benign",
+        indicators=detection_result.indicators,
+        detection_result=detection_result,
+    )
+    service = SecurityService(threat_detector=FixedThreatDetector(assessment))
+
+    response = service.analyze(
+        SecurityInputRequest(
+            source_type="text",
+            source_name="contradictory-detection-test.txt",
+            content="Inert test input.",
+        )
+    )
+
+    assert response.detection_result is None
+    assert response.indicators == []
+    assert (response.risk_score, response.severity, response.action) == (
+        100,
+        "CRITICAL",
+        "BLOCK",
+    )
+
+
+def test_assessment_indicators_must_match_detected_result() -> None:
+    detection_result = DetectionResult(
+        category="benign",
+        severity="LOW",
+        risk_score=0,
+        indicators=[],
+        recommended_action="ALLOW",
+    )
+    assessment = ThreatAssessment(
+        status="analyzed",
+        threat="benign",
+        indicators=["instruction_override"],
+        detection_result=detection_result,
+    )
+    service = SecurityService(threat_detector=FixedThreatDetector(assessment))
+
+    response = service.analyze(
+        SecurityInputRequest(
+            source_type="text",
+            source_name="mismatched-indicators-test.txt",
+            content="Inert test input.",
+        )
+    )
+
+    assert response.detection_result is None
+    assert response.indicators == []
+    assert (response.risk_score, response.severity, response.action) == (
+        100,
+        "CRITICAL",
+        "BLOCK",
+    )
+
+
+def test_raw_detector_indicators_are_not_returned_or_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "TEST_ONLY_FAKE_SECRET_IN_DETECTOR_INDICATOR"
+    detection_result = DetectionResult(
+        category="benign",
+        severity="LOW",
+        risk_score=0,
+        indicators=[secret],
+        recommended_action="ALLOW",
+    )
+    assessment = ThreatAssessment(
+        status="analyzed",
+        threat="benign",
+        indicators=[secret],
+        detection_result=detection_result,
+    )
+    service = SecurityService(threat_detector=FixedThreatDetector(assessment))
+
+    with caplog.at_level(logging.INFO):
+        response = service.analyze(
+            SecurityInputRequest(
+                source_type="text",
+                source_name="sensitive-detector-output-test.txt",
+                content="Inert test input.",
+            )
+        )
+
+    assert response.detection_result is None
+    assert response.indicators == []
+    assert (response.risk_score, response.action) == (100, "BLOCK")
+    assert secret not in response.model_dump_json()
+    assert secret not in caplog.text
+
+
+def test_unknown_detector_category_fails_closed() -> None:
+    detection_result = DetectionResult.model_construct(
+        category="future_unknown_category",
+        severity="LOW",
+        risk_score=0,
+        indicators=[],
+        recommended_action="ALLOW",
+    )
+    assessment = ThreatAssessment.model_construct(
+        status="analyzed",
+        threat="future_unknown_category",
+        indicators=[],
+        detection_result=detection_result,
+    )
+    service = SecurityService(threat_detector=FixedThreatDetector(assessment))
+
+    response = service.analyze(
+        SecurityInputRequest(
+            source_type="text",
+            source_name="unknown-category-test.txt",
+            content="Inert test input.",
+        )
+    )
+
+    assert response.detection_result is None
+    assert (response.risk_score, response.severity, response.action) == (
+        100,
+        "CRITICAL",
+        "BLOCK",
+    )
+
+
+def test_malformed_detector_assessment_fails_closed() -> None:
+    service = SecurityService(threat_detector=FixedThreatDetector(object()))
+
+    response = service.analyze(
+        SecurityInputRequest(
+            source_type="text",
+            source_name="malformed-detector-test.txt",
+            content="Inert test input.",
+        )
+    )
+
+    assert response.detection_result is None
+    assert response.indicators == []
     assert (response.risk_score, response.severity, response.action) == (
         100,
         "CRITICAL",

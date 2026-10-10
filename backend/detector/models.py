@@ -26,4 +26,3 @@ class DetectionResult(BaseModel):
     risk_score: int = Field(ge=0, le=100)
     indicators: list[str] = Field(default_factory=list)
     recommended_action: RecommendedAction
-

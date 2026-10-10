@@ -58,6 +58,7 @@ def test_analyze_normalizes_untrusted_input_and_returns_pipeline_decision() -> N
     assert result["threat"] == "benign"
     assert result["action"] == "ALLOW"
     assert result["indicators"] == []
+    assert result["detection_result"]["category"] == "benign"
     assert result["reason"] == (
         "Risk assessment score=0, severity=LOW; strictest result is ALLOW from "
         "score threshold=ALLOW; severity=ALLOW; risk recommendation=ALLOW. "

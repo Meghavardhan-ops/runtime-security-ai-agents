@@ -176,4 +176,3 @@ def test_detector_is_injectable_and_only_accepts_text_as_data() -> None:
 
     assert result.category in {"benign", "suspicious"}
     assert result.recommended_action != "BLOCK"
-

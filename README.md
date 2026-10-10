@@ -108,6 +108,8 @@ Image uploads are bounded by `IMAGE_MAX_UPLOAD_BYTES` (default 5 MiB) and `IMAGE
 
 The local LLM integration uses `OLLAMA_BASE_URL` (default `http://localhost:11434`), `OLLAMA_MODEL` (default `qwen2.5:3b`), and `OLLAMA_TIMEOUT_SECONDS` (default 30 seconds). `LLM_MAX_MESSAGE_CHARS` limits user messages (default 16,384 characters; maximum configurable value 32,768). Install and start Ollama separately, then manually install the selected model, for example `ollama pull qwen2.5:3b`. AgentShield never downloads models during startup or requests. No API key is needed for the local default configuration.
 
+Image uploads are bounded by `IMAGE_MAX_UPLOAD_BYTES` (default 5 MiB) and `IMAGE_MAX_PIXELS` (default 12 million pixels). `TESSERACT_CMD` optionally selects the Tesseract executable. The image endpoint decodes PNG/JPEG data with Pillow, performs local OCR, and sends extracted text through the existing untrusted-file analysis path. Empty OCR results return a fail-closed `REVIEW`. OCR does not establish that an image is safe; image instructions remain untrusted, and links or QR destinations are never opened.
+
 ## 10. Running the Application
 
 From the project root:

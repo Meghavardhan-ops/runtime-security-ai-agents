@@ -5,8 +5,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from backend.detector.classifiers import classify_result
 from backend.detector.models import DetectionResult
-from backend.detector.threat_detector import ThreatDetector
+from backend.detector.threat_detector import ThreatAssessment, ThreatDetector
 from backend.gateway.input_gateway import InputGateway, SecurityInput, SecurityInputRequest
 from backend.gateway.tool_gateway import ToolGateway
 from backend.monitor.audit_logger import AuditLogger
@@ -37,6 +38,7 @@ class SecurityAnalysis(BaseModel):
     reason: str = "Threat has not been assessed; risk remains unassessed."
     detection_result: DetectionResult | None = None
 
+
 class SecurityService:
     """Coordinate security component stubs without executing requested actions."""
 
@@ -65,8 +67,35 @@ class SecurityService:
     def analyze(self, request: SecurityInputRequest) -> SecurityAnalysis:
         """Re-run ingress normalization before passing input to safe stubs."""
         normalized_input = self.input_gateway.normalize(request)
-        threat_assessment = self.threat_detector.analyze(normalized_input)
-        detection_result = threat_assessment.detection_result
+        detector_valid = False
+        detection_result: DetectionResult | None = None
+        threat_assessment = ThreatAssessment()
+        try:
+            raw_assessment = self.threat_detector.analyze(normalized_input)
+            if not isinstance(raw_assessment, ThreatAssessment):
+                raise TypeError("detector returned an invalid assessment")
+            candidate_assessment = ThreatAssessment.model_validate(
+                raw_assessment.model_dump()
+            )
+            if candidate_assessment.status != "analyzed":
+                raise ValueError("detector assessment is not complete")
+            candidate_result = self._validated_detection_result(
+                candidate_assessment.detection_result
+            )
+            if candidate_result is None:
+                raise ValueError("detector result is missing or invalid")
+            if (
+                candidate_assessment.threat != candidate_result.category
+                or candidate_assessment.indicators != candidate_result.indicators
+            ):
+                raise ValueError("detector assessment contradicts its result")
+            threat_assessment = candidate_assessment
+            detection_result = candidate_result
+            detector_valid = True
+        except Exception:
+            # Malformed or unvalidated detector output must never authorize a request.
+            threat_assessment = ThreatAssessment()
+
         detected_category = (
             detection_result.category if detection_result is not None else None
         )
@@ -79,7 +108,25 @@ class SecurityService:
         final_action = self._strictest_action(
             risk_assessment.recommended_action, policy_decision.action
         )
-        if policy_decision.action == final_action:
+        detector_gate_applied = False
+        if not detector_valid:
+            final_action = "BLOCK"
+            detector_gate_applied = final_action != risk_assessment.recommended_action
+        elif final_action == "ALLOW" and detected_category != "benign":
+            # A valid non-benign result cannot pass a permissive downstream decision.
+            final_action = "REVIEW"
+            detector_gate_applied = True
+        if not detector_valid:
+            final_reason = (
+                "Detector assessment is invalid or unavailable; "
+                "fail-closed decision."
+            )
+        elif detector_gate_applied:
+            final_reason = (
+                "A non-benign detector assessment cannot be allowed; "
+                "manual review is required."
+            )
+        elif policy_decision.action == final_action:
             # When policy establishes the final restriction, retain its
             # configured explanation (especially for policy BLOCK).
             final_reason = policy_decision.reason
@@ -93,14 +140,20 @@ class SecurityService:
             )
         response = SecurityAnalysis(
             input_id=normalized_input.id,
-            analysis_status=("analyzed" if risk_assessment.status == "scored" else "fail_closed"),
+            analysis_status=(
+                "analyzed"
+                if detector_valid and risk_assessment.status == "scored"
+                else "fail_closed"
+            ),
             risk_score=risk_assessment.risk_score,
             severity=risk_assessment.severity,
             action=final_action,
             threat=detected_category or "not_assessed",
-            indicators=threat_assessment.indicators,
+            indicators=(
+                detection_result.indicators if detection_result is not None else []
+            ),
             reason=final_reason,
-            detection_result=threat_assessment.detection_result,
+            detection_result=detection_result,
         )
         self.audit_logger.record(
             "analyze",
@@ -114,6 +167,20 @@ class SecurityService:
             policy_decision=policy_decision.action,
         )
         return response
+
+    @staticmethod
+    def _validated_detection_result(
+        result: DetectionResult | None,
+    ) -> DetectionResult | None:
+        """Accept only typed detector output consistent with its evidence labels."""
+        if not isinstance(result, DetectionResult):
+            return None
+        try:
+            candidate = DetectionResult.model_validate(result.model_dump())
+            canonical = classify_result(set(candidate.indicators))
+        except Exception:
+            return None
+        return candidate if candidate == canonical else None
 
     def check_tool(
         self, tool_name: str, arguments: dict[str, Any]
